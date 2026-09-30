@@ -48,6 +48,7 @@ import {
 import { GOOGLE_APPS_SCRIPT_CODE } from "@/lib/googledrive";
 import LiveCameraModal from "@/components/LiveCameraModal";
 import ImageCropperModal from "@/components/ImageCropperModal";
+import { optimizeImageForOcr } from "@/lib/imageOptimizer";
 
 export default function Home() {
   // Navigation: null = Home Page (3 Options); or active document type
@@ -278,18 +279,29 @@ export default function Home() {
   // Image Upload & Extraction Pipeline
   const handleImageFile = async (file: File) => {
     setWrongDocAlert(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64 = e.target?.result as string;
-      setRawCropImage(base64);
+    try {
+      const optimizedBase64 = await optimizeImageForOcr(file, { maxDimension: 1800, quality: 0.86 });
+      setRawCropImage(optimizedBase64);
       setShowCropperModal(true);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64 = e.target?.result as string;
+        setRawCropImage(base64);
+        setShowCropperModal(true);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
-  const handleCameraCapture = (capturedBase64: string) => {
+  const handleCameraCapture = async (capturedBase64: string) => {
     setShowCameraModal(false);
-    setRawCropImage(capturedBase64);
+    try {
+      const optimized = await optimizeImageForOcr(capturedBase64, { maxDimension: 1800, quality: 0.86 });
+      setRawCropImage(optimized);
+    } catch {
+      setRawCropImage(capturedBase64);
+    }
     setShowCropperModal(true);
   };
 
@@ -315,15 +327,40 @@ export default function Home() {
     setDetectedUniversalType(null);
 
     try {
+      // Ensure image is safe size (< 1.5MB base64) to avoid Vercel 4.5MB payload limits
+      let uploadBase64 = base64;
+      if (base64.length > 1.5 * 1024 * 1024) {
+        try {
+          uploadBase64 = await optimizeImageForOcr(base64, { maxDimension: 1600, quality: 0.84 });
+        } catch (optErr) {
+          console.warn("Safety compression skipped:", optErr);
+        }
+      }
+
       // Universal mode: use the classify-then-extract endpoint
       if (selectedDocType === "universal") {
         const res = await fetch("/api/extract/universal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ base64, mimeType }),
+          body: JSON.stringify({ base64: uploadBase64, mimeType }),
         });
 
-        const data = await res.json();
+        let data: any;
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const rawText = await res.text();
+          if (res.status === 413) {
+            throw new Error("The image exceeds the server size limit. Please crop or choose a smaller photo.");
+          }
+          if (res.status === 504 || res.status === 408) {
+            throw new Error("AI extraction timed out. Please try again with a clearer or cropped image.");
+          }
+          throw new Error(
+            `Server returned status ${res.status}: ${rawText.slice(0, 100) || res.statusText || "Extraction failed"}`
+          );
+        }
 
         if (res.status === 422 || data.isWrongDocument) {
           setDetectedUniversalType(data.classification || { type: "unknown", confidence: 0, reason: data.error || "" });
@@ -343,12 +380,12 @@ export default function Home() {
           });
 
           if (data.isInvoice) {
-            setCurrentInvoice({ ...data.data, imageUrl: base64 });
+            setCurrentInvoice({ ...data.data, imageUrl: uploadBase64 });
           } else {
             setCurrentTransitRecord({
               ...data.data,
               docType: data.detectedType,
-              imageUrl: base64,
+              imageUrl: uploadBase64,
             });
             setValidationReport(data.validation);
           }
@@ -366,13 +403,28 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          base64,
+          base64: uploadBase64,
           mimeType,
           docType: selectedDocType || "transit_duplicate",
         }),
       });
 
-      const data = await res.json();
+      let data: any;
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const rawText = await res.text();
+        if (res.status === 413) {
+          throw new Error("The image exceeds the server size limit. Please crop or choose a smaller photo.");
+        }
+        if (res.status === 504 || res.status === 408) {
+          throw new Error("AI extraction timed out. Please try again with a clearer or cropped image.");
+        }
+        throw new Error(
+          `Server returned status ${res.status}: ${rawText.slice(0, 100) || res.statusText || "Extraction failed"}`
+        );
+      }
 
       if (res.status === 422 || data.isWrongDocument) {
         setWrongDocAlert(
@@ -384,12 +436,12 @@ export default function Home() {
 
       if (data.success) {
         if (data.isInvoice || selectedDocType === "invoice") {
-          setCurrentInvoice({ ...data.data, imageUrl: base64 });
+          setCurrentInvoice({ ...data.data, imageUrl: uploadBase64 });
         } else {
           setCurrentTransitRecord({
             ...data.data,
             docType: selectedDocType || "transit_duplicate",
-            imageUrl: base64,
+            imageUrl: uploadBase64,
           });
           setValidationReport(data.validation);
         }

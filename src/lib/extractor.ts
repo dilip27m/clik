@@ -81,14 +81,40 @@ export function normalizeMineralGrade(raw: string): string {
   return "Grey Barytes - C and D";
 }
 
+// Robust JSON extraction from Gemini responses (handles code fences, preamble text, etc.)
+export function parseGeminiJson<T = any>(rawText: string): T {
+  const clean = (rawText || "").trim();
+  // 1. Try direct parse
+  try {
+    return JSON.parse(clean);
+  } catch {}
+
+  // 2. Try extracting from ```json ... ``` or ``` ... ```
+  const codeBlockMatch = clean.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch {}
+  }
+
+  // 3. Try finding first '{' and last '}'
+  const firstBrace = clean.indexOf("{");
+  const lastBrace = clean.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = clean.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+  }
+
+  throw new Error(`Invalid JSON returned by AI: ${clean.slice(0, 150)}`);
+}
+
+// Fast and active models verified against Google Gemini API
 const CANDIDATE_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-3.7-flash",
-  "gemini-3.8-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
   "gemini-flash-latest",
-  "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
   "gemini-flash-lite-latest",
 ];
 
@@ -119,7 +145,7 @@ export async function extractTransitForm(
     throw new Error("Server configuration error: Gemini API keys not found in .env.");
   }
 
-  const cleanBase64 = base64Image.replace(/^data:image\/[a-z]+;base64,/, "");
+  const cleanBase64 = (base64Image || "").replace(/^data:[^;]+;base64,/, "").trim();
 
   for (let i = 0; i < keyPool.length; i++) {
     const currentKey = keyPool[i];
@@ -146,11 +172,7 @@ export async function extractTransitForm(
         });
 
         const responseText = response.text || "";
-        const cleanJsonStr = responseText
-          .replace(/```json/gi, "")
-          .replace(/```/g, "")
-          .trim();
-        const parsed = JSON.parse(cleanJsonStr);
+        const parsed = parseGeminiJson<any>(responseText);
 
         if (parsed.isWrongDocument) {
           return {
@@ -235,7 +257,7 @@ export async function extractTaxInvoice(
     throw new Error("Server configuration error: Gemini API keys not found in .env.");
   }
 
-  const cleanBase64 = base64Image.replace(/^data:image\/[a-z]+;base64,/, "");
+  const cleanBase64 = (base64Image || "").replace(/^data:[^;]+;base64,/, "").trim();
 
   for (let i = 0; i < keyPool.length; i++) {
     const currentKey = keyPool[i];
@@ -262,11 +284,7 @@ export async function extractTaxInvoice(
         });
 
         const responseText = response.text || "";
-        const cleanJsonStr = responseText
-          .replace(/```json/gi, "")
-          .replace(/```/g, "")
-          .trim();
-        const parsed = JSON.parse(cleanJsonStr);
+        const parsed = parseGeminiJson<any>(responseText);
 
         if (parsed.isWrongDocument) {
           return {
@@ -340,7 +358,7 @@ export async function classifyDocument(
     throw new Error("Server configuration error: Gemini API keys not found in .env.");
   }
 
-  const cleanBase64 = base64Image.replace(/^data:image\/[a-z]+;base64,/, "");
+  const cleanBase64 = (base64Image || "").replace(/^data:[^;]+;base64,/, "").trim();
 
   for (let i = 0; i < keyPool.length; i++) {
     const currentKey = keyPool[i];
@@ -367,11 +385,7 @@ export async function classifyDocument(
         });
 
         const responseText = response.text || "";
-        const cleanJsonStr = responseText
-          .replace(/```json/gi, "")
-          .replace(/```/g, "")
-          .trim();
-        const parsed = JSON.parse(cleanJsonStr);
+        const parsed = parseGeminiJson<any>(responseText);
 
         return {
           documentType: parsed.documentType || "unknown",

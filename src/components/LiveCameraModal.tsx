@@ -132,17 +132,33 @@ export default function LiveCameraModal({
   const capturePhoto = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
+    let width = video.videoWidth || 1920;
+    let height = video.videoHeight || 1080;
+    const MAX_DIM = 1800;
+
+    if (width > MAX_DIM || height > MAX_DIM) {
+      if (width > height) {
+        height = Math.round((height * MAX_DIM) / width);
+        width = MAX_DIM;
+      } else {
+        width = Math.round((width * MAX_DIM) / height);
+        height = MAX_DIM;
+      }
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1920;
-    canvas.height = video.videoHeight || 1080;
+    canvas.width = width;
+    canvas.height = height;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     // Draw video frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const base64 = canvas.toDataURL("image/jpeg", 0.95);
+    const base64 = canvas.toDataURL("image/jpeg", 0.86);
     stopStream();
     onCapture(base64);
     onClose();

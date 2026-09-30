@@ -66,8 +66,13 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Transit Form Extraction (Original or Duplicate)
-    const { records } = await getAllTransitRecords({}, docType);
-    const existingKeys = records.map((r) => r.stationaryNo.trim().toUpperCase());
+    let existingKeys: string[] = [];
+    try {
+      const { records } = await getAllTransitRecords({}, docType);
+      existingKeys = records.map((r) => r.stationaryNo.trim().toUpperCase());
+    } catch (dbErr) {
+      console.warn("[API /api/extract] Could not fetch existing keys for duplicate check:", dbErr);
+    }
 
     const result = await extractTransitForm(
       base64Image,

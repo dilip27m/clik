@@ -157,6 +157,8 @@ export default function ImageCropperModal({
       const rCtx = rotatedCanvas.getContext("2d");
       if (!rCtx) return;
 
+      rCtx.imageSmoothingEnabled = true;
+      rCtx.imageSmoothingQuality = "high";
       rCtx.translate(rotatedCanvas.width / 2, rotatedCanvas.height / 2);
       rCtx.rotate((rotation * Math.PI) / 180);
       rCtx.drawImage(img, -img.width / 2, -img.height / 2);
@@ -167,13 +169,29 @@ export default function ImageCropperModal({
       const cropW = Math.round(crop.width * rotatedCanvas.width);
       const cropH = Math.round(crop.height * rotatedCanvas.height);
 
+      // Downscale if crop dimensions exceed 1800px
+      let targetW = Math.max(50, cropW);
+      let targetH = Math.max(50, cropH);
+      const MAX_DIM = 1800;
+      if (targetW > MAX_DIM || targetH > MAX_DIM) {
+        if (targetW > targetH) {
+          targetH = Math.round((targetH * MAX_DIM) / targetW);
+          targetW = MAX_DIM;
+        } else {
+          targetW = Math.round((targetW * MAX_DIM) / targetH);
+          targetH = MAX_DIM;
+        }
+      }
+
       const finalCanvas = document.createElement("canvas");
-      finalCanvas.width = Math.max(50, cropW);
-      finalCanvas.height = Math.max(50, cropH);
+      finalCanvas.width = targetW;
+      finalCanvas.height = targetH;
 
       const fCtx = finalCanvas.getContext("2d");
       if (!fCtx) return;
 
+      fCtx.imageSmoothingEnabled = true;
+      fCtx.imageSmoothingQuality = "high";
       fCtx.drawImage(
         rotatedCanvas,
         cropX,
@@ -186,36 +204,52 @@ export default function ImageCropperModal({
         finalCanvas.height
       );
 
-      const croppedBase64 = finalCanvas.toDataURL("image/jpeg", 0.94);
+      const croppedBase64 = finalCanvas.toDataURL("image/jpeg", 0.86);
       onApplyCrop(croppedBase64);
       onClose();
     };
     img.src = imageSrc;
   };
 
-  // Skip Crop (Use full image with current rotation)
+  // Skip Crop (Use full image with current rotation, downscaled to safe OCR size)
   const skipCropAndSave = () => {
-    if (rotation === 0) {
-      onApplyCrop(imageSrc);
-      onClose();
-      return;
-    }
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      const canvas = document.createElement("canvas");
       const is90or270 = rotation === 90 || rotation === 270;
-      canvas.width = is90or270 ? img.height : img.width;
-      canvas.height = is90or270 ? img.width : img.height;
+      const srcW = is90or270 ? img.height : img.width;
+      const srcH = is90or270 ? img.width : img.height;
+
+      let targetW = srcW;
+      let targetH = srcH;
+      const MAX_DIM = 1800;
+      if (targetW > MAX_DIM || targetH > MAX_DIM) {
+        if (targetW > targetH) {
+          targetH = Math.round((targetH * MAX_DIM) / targetW);
+          targetW = MAX_DIM;
+        } else {
+          targetW = Math.round((targetW * MAX_DIM) / targetH);
+          targetH = MAX_DIM;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.translate(canvas.width / 2, canvas.height / 2);
       ctx.rotate((rotation * Math.PI) / 180);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
 
-      const rotatedBase64 = canvas.toDataURL("image/jpeg", 0.94);
+      const drawW = is90or270 ? targetH : targetW;
+      const drawH = is90or270 ? targetW : targetH;
+      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+
+      const rotatedBase64 = canvas.toDataURL("image/jpeg", 0.86);
       onApplyCrop(rotatedBase64);
       onClose();
     };
