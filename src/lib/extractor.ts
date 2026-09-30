@@ -162,8 +162,33 @@ export async function extractTransitForm(
           };
         }
 
-        const detected = parsed.detectedDocType || (docType === "transit_original" ? "transit_original" : "transit_duplicate");
-        const isOriginal = docType === "transit_original" || detected === "transit_original";
+        const detected = parsed.detectedDocType;
+        const cleanStationary = (parsed.stationaryNo || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
+        // Strict Check: User uploaded Duplicate in Original mode
+        if (docType === "transit_original" && (detected === "transit_duplicate" || cleanStationary.startsWith("DD"))) {
+          return {
+            data: {} as TransitRecord,
+            validation: { isValid: false, warnings: [], fieldErrors: {} },
+            isWrongDocument: true,
+            rejectionReason: `Wrong Document: You uploaded a Transit Duplicate Form (Stationary No '${cleanStationary}'). You are currently inside Transit Original mode. This document will not be processed or saved.`,
+            source: "gemini-vision",
+          };
+        }
+
+        // Strict Check: User uploaded Original in Duplicate mode
+        if (docType === "transit_duplicate" && (detected === "transit_original" || cleanStationary.startsWith("MDLA"))) {
+          return {
+            data: {} as TransitRecord,
+            validation: { isValid: false, warnings: [], fieldErrors: {} },
+            isWrongDocument: true,
+            rejectionReason: `Wrong Document: You uploaded a Transit Original Form E (Stationary No '${cleanStationary}'). You are currently inside Transit Duplicate mode. This document will not be processed or saved.`,
+            source: "gemini-vision",
+          };
+        }
+
+        const finalDocType = detected || docType || "transit_duplicate";
+        const isOriginal = docType === "transit_original" || finalDocType === "transit_original";
         const qtyVal = parsed.dispatchQty !== null && parsed.dispatchQty !== undefined
           ? Number(parsed.dispatchQty)
           : (parsed.productionQty !== null && parsed.productionQty !== undefined ? Number(parsed.productionQty) : null);

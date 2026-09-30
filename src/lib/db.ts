@@ -35,7 +35,7 @@ export function getPool(overrideConnStr?: string): Pool {
     pool = new Pool({
       connectionString: targetConn,
       ssl: isCloud ? { rejectUnauthorized: false } : undefined,
-      connectionTimeoutMillis: 3500,
+      connectionTimeoutMillis: 10000, // 10s for Neon serverless wakeups
       max: 10,
     });
     activeConnString = targetConn;
@@ -45,6 +45,21 @@ export function getPool(overrideConnStr?: string): Pool {
     });
   }
   return pool;
+}
+
+// Keep-alive timer: Pings Neon PostgreSQL every 4 minutes to prevent it from going to sleep
+let keepAliveTimer: NodeJS.Timeout | null = null;
+function startKeepAlive() {
+  if (keepAliveTimer) return;
+  keepAliveTimer = setInterval(async () => {
+    try {
+      const p = getPool();
+      await p.query("SELECT 1");
+    } catch (e: any) {
+      console.warn("[Neon Keep-Alive Ping Failed]:", e.message);
+    }
+  }, 4 * 60 * 1000); // 4 minutes
+  if (keepAliveTimer.unref) keepAliveTimer.unref();
 }
 
 let initPromise: Promise<boolean> | null = null;
@@ -163,8 +178,9 @@ export async function initDatabase(): Promise<boolean> {
     }
 
     isInitialized = true;
+    startKeepAlive();
     console.log(
-      "[Database] Initialized tables: transit_pass_duplicate, transit_pass_original, tax_invoices."
+      "[Database] Initialized tables: transit_pass_duplicate, transit_pass_original, tax_invoices. Neon keep-alive active."
     );
     return true;
     } catch (err: any) {
@@ -469,7 +485,7 @@ export async function getTransitRecordByStationaryNo(
 
 export async function saveTransitRecord(
   record: TransitRecord
-): Promise<{ success: boolean; record: TransitRecord; isDuplicate?: boolean }> {
+): Promise<{ success: boolean; record: TransitRecord; isDuplicate?: boolean; error?: string }> {
   const cleanStationary = record.stationaryNo.trim().toUpperCase();
   const isOriginal = record.docType === "transit_original";
   const targetTable = isOriginal ? "transit_pass_original" : "transit_pass_duplicate";
@@ -483,74 +499,81 @@ export async function saveTransitRecord(
     updatedAt: new Date().toISOString(),
   };
 
-  if (dbReady) {
-    try {
-      const p = getPool();
-      const existing = await p.query(
-        `SELECT stationary_no FROM ${targetTable} WHERE stationary_no = $1`,
-        [cleanStationary]
-      );
-      if (existing.rows.length > 0) {
-        return { success: false, record: recordToSave, isDuplicate: true };
-      }
+  if (!dbReady) {
+    return {
+      success: false,
+      record: recordToSave,
+      error: "Database Connection Failed: PostgreSQL / Neon is offline. Record was NOT saved to prevent data loss.",
+    };
+  }
 
-      if (isOriginal) {
-        await p.query(
-          `INSERT INTO transit_pass_original (
-            stationary_no, dispatch_date, mdl_name_consignee_name,
-            mineral_name, vehicle_no, dispatch_qty, production_qty,
-            image_url, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [
-            recordToSave.stationaryNo,
-            recordToSave.dispatchDate,
-            recordToSave.mdlNameConsigneeName,
-            recordToSave.mineralName,
-            recordToSave.vehicleNo,
-            recordToSave.dispatchQty,
-            recordToSave.productionQty || null,
-            recordToSave.imageUrl || null,
-            recordToSave.createdAt,
-            recordToSave.updatedAt,
-          ]
-        );
-      } else {
-        await p.query(
-          `INSERT INTO transit_pass_duplicate (
-            stationary_no, dispatch_date, mdl_name_consignee_name,
-            mineral_name, vehicle_no, dispatch_qty,
-            image_url, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            recordToSave.stationaryNo,
-            recordToSave.dispatchDate,
-            recordToSave.mdlNameConsigneeName,
-            recordToSave.mineralName,
-            recordToSave.vehicleNo,
-            recordToSave.dispatchQty,
-            recordToSave.imageUrl || null,
-            recordToSave.createdAt,
-            recordToSave.updatedAt,
-          ]
-        );
-      }
+  // Store only clean URLs (e.g. Google Drive), avoid saving massive multi-megabyte base64 text into PostgreSQL
+  const cleanImageUrl = recordToSave.imageUrl && recordToSave.imageUrl.startsWith("http") ? recordToSave.imageUrl : null;
 
-      inMemoryTransitStore.set(cleanStationary, recordToSave);
-      return { success: true, record: recordToSave };
-    } catch (err: any) {
-      if (err.code === "23505") {
-        return { success: false, record: recordToSave, isDuplicate: true };
-      }
-      console.error("[Database] Error inserting transit record:", err.message);
+  try {
+    const p = getPool();
+    const existing = await p.query(
+      `SELECT stationary_no FROM ${targetTable} WHERE stationary_no = $1`,
+      [cleanStationary]
+    );
+    if (existing.rows.length > 0) {
+      return { success: false, record: recordToSave, isDuplicate: true };
     }
-  }
 
-  if (inMemoryTransitStore.has(cleanStationary)) {
-    return { success: false, record: recordToSave, isDuplicate: true };
-  }
+    if (isOriginal) {
+      await p.query(
+        `INSERT INTO transit_pass_original (
+          stationary_no, dispatch_date, mdl_name_consignee_name,
+          mineral_name, vehicle_no, dispatch_qty, production_qty,
+          image_url, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          recordToSave.stationaryNo,
+          recordToSave.dispatchDate,
+          recordToSave.mdlNameConsigneeName,
+          recordToSave.mineralName,
+          recordToSave.vehicleNo,
+          recordToSave.dispatchQty,
+          recordToSave.productionQty || null,
+          cleanImageUrl,
+          recordToSave.createdAt,
+          recordToSave.updatedAt,
+        ]
+      );
+    } else {
+      await p.query(
+        `INSERT INTO transit_pass_duplicate (
+          stationary_no, dispatch_date, mdl_name_consignee_name,
+          mineral_name, vehicle_no, dispatch_qty,
+          image_url, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          recordToSave.stationaryNo,
+          recordToSave.dispatchDate,
+          recordToSave.mdlNameConsigneeName,
+          recordToSave.mineralName,
+          recordToSave.vehicleNo,
+          recordToSave.dispatchQty,
+          cleanImageUrl,
+          recordToSave.createdAt,
+          recordToSave.updatedAt,
+        ]
+      );
+    }
 
-  inMemoryTransitStore.set(cleanStationary, recordToSave);
-  return { success: true, record: recordToSave };
+    inMemoryTransitStore.set(cleanStationary, recordToSave);
+    return { success: true, record: recordToSave };
+  } catch (err: any) {
+    if (err.code === "23505") {
+      return { success: false, record: recordToSave, isDuplicate: true };
+    }
+    console.error("[Database] Error inserting transit record:", err.message);
+    return {
+      success: false,
+      record: recordToSave,
+      error: `Database write failed: ${err.message}`,
+    };
+  }
 }
 
 export async function deleteTransitRecord(
@@ -816,7 +839,7 @@ export async function getInvoiceByNo(invoiceNo: string): Promise<InvoiceRecord |
 
 export async function saveInvoice(
   invoice: InvoiceRecord
-): Promise<{ success: boolean; invoice: InvoiceRecord; isDuplicate?: boolean }> {
+): Promise<{ success: boolean; invoice: InvoiceRecord; isDuplicate?: boolean; error?: string }> {
   const cleanInvoiceNo = invoice.invoiceNo.trim();
   const dbReady = await initDatabase();
 
@@ -827,57 +850,64 @@ export async function saveInvoice(
     updatedAt: new Date().toISOString(),
   };
 
-  if (dbReady) {
-    try {
-      const p = getPool();
-      const existing = await p.query(
-        "SELECT invoice_no FROM tax_invoices WHERE invoice_no = $1",
-        [cleanInvoiceNo]
-      );
-      if (existing.rows.length > 0) {
-        return { success: false, invoice: recordToSave, isDuplicate: true };
-      }
+  if (!dbReady) {
+    return {
+      success: false,
+      invoice: recordToSave,
+      error: "Database Connection Failed: PostgreSQL / Neon is offline. Invoice was NOT saved to prevent data loss.",
+    };
+  }
 
-      await p.query(
-        `INSERT INTO tax_invoices (
-          invoice_no, bill_to, invoice_date, quantity, rate_per_unit,
-          taxable_amount, cgst_amount, sgst_amount, total_amount,
-          image_url, created_at, updated_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-        )`,
-        [
-          recordToSave.invoiceNo,
-          recordToSave.billTo,
-          recordToSave.invoiceDate,
-          recordToSave.quantity,
-          recordToSave.ratePerUnit,
-          recordToSave.taxableAmount,
-          recordToSave.cgstAmount,
-          recordToSave.sgstAmount,
-          recordToSave.totalAmount,
-          recordToSave.imageUrl || null,
-          recordToSave.createdAt,
-          recordToSave.updatedAt,
-        ]
-      );
+  // Store only clean URLs (e.g. Google Drive), avoid saving massive multi-megabyte base64 text into PostgreSQL
+  const cleanImageUrl = recordToSave.imageUrl && recordToSave.imageUrl.startsWith("http") ? recordToSave.imageUrl : null;
 
-      inMemoryInvoiceStore.set(cleanInvoiceNo, recordToSave);
-      return { success: true, invoice: recordToSave };
-    } catch (err: any) {
-      if (err.code === "23505") {
-        return { success: false, invoice: recordToSave, isDuplicate: true };
-      }
-      console.error("[Database] Error inserting invoice into tax_invoices:", err.message);
+  try {
+    const p = getPool();
+    const existing = await p.query(
+      "SELECT invoice_no FROM tax_invoices WHERE invoice_no = $1",
+      [cleanInvoiceNo]
+    );
+    if (existing.rows.length > 0) {
+      return { success: false, invoice: recordToSave, isDuplicate: true };
     }
-  }
 
-  if (inMemoryInvoiceStore.has(cleanInvoiceNo)) {
-    return { success: false, invoice: recordToSave, isDuplicate: true };
-  }
+    await p.query(
+      `INSERT INTO tax_invoices (
+        invoice_no, bill_to, invoice_date, quantity, rate_per_unit,
+        taxable_amount, cgst_amount, sgst_amount, total_amount,
+        image_url, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+      )`,
+      [
+        recordToSave.invoiceNo,
+        recordToSave.billTo,
+        recordToSave.invoiceDate,
+        recordToSave.quantity,
+        recordToSave.ratePerUnit,
+        recordToSave.taxableAmount,
+        recordToSave.cgstAmount,
+        recordToSave.sgstAmount,
+        recordToSave.totalAmount,
+        cleanImageUrl,
+        recordToSave.createdAt,
+        recordToSave.updatedAt,
+      ]
+    );
 
-  inMemoryInvoiceStore.set(cleanInvoiceNo, recordToSave);
-  return { success: true, invoice: recordToSave };
+    inMemoryInvoiceStore.set(cleanInvoiceNo, recordToSave);
+    return { success: true, invoice: recordToSave };
+  } catch (err: any) {
+    if (err.code === "23505") {
+      return { success: false, invoice: recordToSave, isDuplicate: true };
+    }
+    console.error("[Database] Error inserting invoice into tax_invoices:", err.message);
+    return {
+      success: false,
+      invoice: recordToSave,
+      error: `Database write failed: ${err.message}`,
+    };
+  }
 }
 
 export async function deleteInvoice(invoiceNo: string): Promise<boolean> {

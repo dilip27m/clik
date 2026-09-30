@@ -108,14 +108,14 @@ export async function POST(req: NextRequest) {
 
     const saveResult = await saveTransitRecord(body);
 
-    if (saveResult.isDuplicate) {
+    if (!saveResult.success) {
       return NextResponse.json(
         {
           success: false,
-          error: `Duplicate rejected: A Transit Form with Stationary No '${body.stationaryNo}' already exists in database.`,
-          isDuplicate: true,
+          error: (saveResult as any).error || `Failed to save Transit Form ${body.stationaryNo}`,
+          isDuplicate: saveResult.isDuplicate,
         },
-        { status: 409 }
+        { status: saveResult.isDuplicate ? 409 : 503 }
       );
     }
 

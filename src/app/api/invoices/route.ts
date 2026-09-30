@@ -86,14 +86,14 @@ export async function POST(req: NextRequest) {
 
     const saveResult = await saveInvoice(body);
 
-    if (saveResult.isDuplicate) {
+    if (!saveResult.success) {
       return NextResponse.json(
         {
           success: false,
-          error: `Duplicate rejected: Invoice No '${body.invoiceNo}' already exists in database.`,
-          isDuplicate: true,
+          error: (saveResult as any).error || `Failed to save Invoice ${body.invoiceNo}`,
+          isDuplicate: saveResult.isDuplicate,
         },
-        { status: 409 }
+        { status: saveResult.isDuplicate ? 409 : 503 }
       );
     }
 

@@ -126,7 +126,6 @@ export default function Home() {
   const [editingTransitRecord, setEditingTransitRecord] = useState<TransitRecord | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<InvoiceRecord | null>(null);
   const [editSaving, setEditSaving] = useState(false);
-  const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
 
   // Live Camera & Image Cropper state
   const [showCameraModal, setShowCameraModal] = useState(false);
@@ -136,6 +135,12 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+
+  const viewImageInNewTab = (src: string | null) => {
+    if (!src) return;
+    const w = window.open("");
+    w?.document.write(`<html><head><title>Document Preview</title></head><body style="margin:0;background:#0a0a0a;display:flex;justify-content:center;align-items:center;min-height:100vh;"><img src="${src}" style="max-width:96%;max-height:96vh;object-fit:contain;box-shadow:0 0 30px rgba(0,0,0,0.8);" /></body></html>`);
+  };
 
   const buildQueryString = () => {
     const params = new URLSearchParams();
@@ -547,10 +552,17 @@ export default function Home() {
                 OCR & Master Ledger
               </span>
             </div>
-            <div className="hidden sm:flex items-center ml-4 px-2.5 py-0.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 text-[10px] font-mono text-emerald-300 gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>NEON CLOUD POSTGRES</span>
-            </div>
+            {overallStats.isPostgres ? (
+              <div className="hidden sm:flex items-center ml-4 px-2.5 py-0.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 text-[10px] font-mono text-emerald-300 gap-1.5" title="Connected to PostgreSQL / Neon Database">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                <span>POSTGRES CONNECTED</span>
+              </div>
+            ) : (
+              <div className="flex items-center ml-4 px-2.5 py-0.5 rounded-full border border-red-800 bg-red-950/60 text-[10px] font-mono text-red-300 gap-1.5 animate-pulse" title="PostgreSQL Database is Offline! Saving disabled to prevent data loss.">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                <span>DATABASE OFFLINE</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -590,6 +602,24 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {/* Database Offline Warning Banner */}
+      {!overallStats.isPostgres && (
+        <div className="bg-red-950/90 border-b border-red-800 text-red-200 px-4 py-2.5 text-xs font-mono flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+            <span>
+              <strong>Database Offline:</strong> PostgreSQL / Neon database is currently unreachable. Record saving is temporarily disabled to prevent data loss.
+            </span>
+          </div>
+          <button
+            onClick={() => loadActiveData()}
+            className="px-3 py-1 rounded bg-red-900 hover:bg-red-800 text-white text-[11px] font-mono transition shadow-sm"
+          >
+            Retry Connection
+          </button>
+        </div>
+      )}
 
       {/* VIEW 1: HOME PAGE (ONLY 3 OPTIONS AS REQUESTED BY USER) */}
       {selectedDocType === null ? (
@@ -972,9 +1002,9 @@ export default function Home() {
                       <div className="p-3.5 rounded-xl border border-neutral-800 bg-[#0d0d0d] flex flex-wrap items-center justify-between gap-3 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div
-                            onClick={() => setPreviewImageModal(imagePreview)}
+                            onClick={() => viewImageInNewTab(imagePreview)}
                             className="relative h-14 w-20 rounded border border-neutral-700 bg-black overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
-                            title="Click to view full image"
+                            title="Click to view full image in new tab"
                           >
                             <img
                               src={imagePreview}
@@ -1010,7 +1040,7 @@ export default function Home() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setPreviewImageModal(imagePreview)}
+                            onClick={() => viewImageInNewTab(imagePreview)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-neutral-900 hover:bg-neutral-800 text-neutral-200 hover:text-white border border-neutral-700 text-xs font-mono font-medium transition"
                           >
                             <Eye className="h-3.5 w-3.5 text-neutral-400" />
@@ -1244,9 +1274,9 @@ export default function Home() {
                       <div className="p-3.5 rounded-xl border border-neutral-800 bg-[#0d0d0d] flex flex-wrap items-center justify-between gap-3 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div
-                            onClick={() => setPreviewImageModal(imagePreview)}
+                            onClick={() => viewImageInNewTab(imagePreview)}
                             className="relative h-14 w-20 rounded border border-neutral-700 bg-black overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
-                            title="Click to view full image"
+                            title="Click to view full image in new tab"
                           >
                             <img
                               src={imagePreview}
@@ -1282,7 +1312,7 @@ export default function Home() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setPreviewImageModal(imagePreview)}
+                            onClick={() => viewImageInNewTab(imagePreview)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-neutral-900 hover:bg-neutral-800 text-neutral-200 hover:text-white border border-neutral-700 text-xs font-mono font-medium transition"
                           >
                             <Eye className="h-3.5 w-3.5 text-neutral-400" />
@@ -1953,12 +1983,8 @@ export default function Home() {
 
             {detailInvoice.imageUrl && (
               <div className="mt-3 pt-3 border-t border-neutral-800">
-                <div className="text-[10px] text-neutral-500 font-mono mb-2">Original Scanned Document (Click to enlarge)</div>
-                <div
-                  onClick={() => setPreviewImageModal(detailInvoice.imageUrl || null)}
-                  className="max-h-52 overflow-hidden rounded-lg border border-neutral-800 bg-black flex items-center justify-center cursor-pointer hover:border-neutral-600 transition"
-                  title="Click to view full size"
-                >
+                <div className="text-[10px] text-neutral-500 font-mono mb-2">Original Scanned Document</div>
+                <div className="max-h-52 overflow-hidden rounded-lg border border-neutral-800 bg-black flex items-center justify-center">
                   <img src={detailInvoice.imageUrl} alt="Invoice Document" className="object-contain max-h-52 w-auto" />
                 </div>
               </div>
@@ -2010,12 +2036,8 @@ export default function Home() {
 
             {detailTransitRecord.imageUrl && (
               <div className="mt-3 pt-3 border-t border-neutral-800">
-                <div className="text-[10px] text-neutral-500 font-mono mb-2">Original Scanned Document (Click to enlarge)</div>
-                <div
-                  onClick={() => setPreviewImageModal(detailTransitRecord.imageUrl || null)}
-                  className="max-h-60 overflow-hidden rounded-lg border border-neutral-800 bg-black flex items-center justify-center cursor-pointer hover:border-neutral-600 transition"
-                  title="Click to view full size"
-                >
+                <div className="text-[10px] text-neutral-500 font-mono mb-2">Original Scanned Document</div>
+                <div className="max-h-60 overflow-hidden rounded-lg border border-neutral-800 bg-black flex items-center justify-center">
                   <img src={detailTransitRecord.imageUrl} alt="Transit Document" className="object-contain max-h-60 w-auto" />
                 </div>
               </div>
@@ -2309,11 +2331,7 @@ export default function Home() {
               {editingTransitRecord.imageUrl && (
                 <div className="pt-2 border-t border-neutral-800">
                   <div className="text-[10px] font-mono text-neutral-500 mb-1">Reference Document</div>
-                  <div
-                    onClick={() => setPreviewImageModal(editingTransitRecord.imageUrl || null)}
-                    className="max-h-40 overflow-hidden rounded border border-neutral-800 bg-black flex items-center justify-center cursor-pointer hover:border-neutral-600 transition"
-                    title="Click to view full size"
-                  >
+                  <div className="max-h-40 overflow-hidden rounded border border-neutral-800 bg-black flex items-center justify-center">
                     <img src={editingTransitRecord.imageUrl} alt="Document" className="object-contain max-h-40 w-auto" />
                   </div>
                 </div>
@@ -2500,11 +2518,7 @@ export default function Home() {
               {editingInvoice.imageUrl && (
                 <div className="pt-2 border-t border-neutral-800">
                   <div className="text-[10px] font-mono text-neutral-500 mb-1">Reference Document</div>
-                  <div
-                    onClick={() => setPreviewImageModal(editingInvoice.imageUrl || null)}
-                    className="max-h-40 overflow-hidden rounded border border-neutral-800 bg-black flex items-center justify-center cursor-pointer hover:border-neutral-600 transition"
-                    title="Click to view full size"
-                  >
+                  <div className="max-h-40 overflow-hidden rounded border border-neutral-800 bg-black flex items-center justify-center">
                     <img src={editingInvoice.imageUrl} alt="Document" className="object-contain max-h-40 w-auto" />
                   </div>
                 </div>
@@ -2546,28 +2560,6 @@ export default function Home() {
         onApplyCrop={handleCropperComplete}
         docTitle={getDocTitle(selectedDocType)}
       />
-
-      {/* Image Preview Lightbox Modal */}
-      {previewImageModal && (
-        <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
-          onClick={() => setPreviewImageModal(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] bg-black border border-neutral-800 rounded-xl overflow-hidden p-2">
-            <button
-              onClick={() => setPreviewImageModal(null)}
-              className="absolute top-4 right-4 z-10 p-2 rounded-full bg-neutral-900/80 text-white hover:bg-neutral-800 border border-neutral-700"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <img
-              src={previewImageModal}
-              alt="Enlarged document preview"
-              className="max-h-[85vh] max-w-full object-contain mx-auto rounded"
-            />
-          </div>
-        </div>
-      )}
 
       {/* Footer */}
       <footer className="border-t border-[#1f1f1f] bg-[#050505] py-4 mt-auto">
