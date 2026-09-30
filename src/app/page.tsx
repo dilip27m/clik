@@ -117,7 +117,10 @@ export default function Home() {
       const saved = localStorage.getItem("AP_MINES_GOOGLE_SHEET_URL");
       if (saved) return saved;
     }
-    return process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL || "https://docs.google.com/spreadsheets";
+    return (
+      process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL ||
+      "https://docs.google.com/spreadsheets/d/1wlJysYfR4fTKCjvp0aFvdOooqYyvUtuXgTACneiO49U/edit?gid=0#gid=0"
+    );
   });
   const [showSettings, setShowSettings] = useState(false);
   const [driveConfig, setDriveConfig] = useState<GoogleDriveSyncConfig>(() => {
