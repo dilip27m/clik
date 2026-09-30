@@ -18,6 +18,7 @@ const connectionString =
 let pool: Pool | null = null;
 let isInitialized = false; // Tables created (DDL ran) — one-time flag
 let isDbHealthy = false;   // Live connection health — updated by keep-alive ping
+let lastDbError: string | null = null; // Reason why last connection attempt failed
 
 // Fallback in-memory stores
 const inMemoryTransitStore = new Map<string, TransitRecord>();
@@ -50,6 +51,7 @@ export function getPool(overrideConnStr?: string): Pool {
     pool.on("error", (err) => {
       console.error("[PostgreSQL Pool Error]:", err.message);
       isDbHealthy = false; // Mark unhealthy on pool-level errors
+      lastDbError = err.message;
     });
   }
   return pool;
@@ -68,9 +70,11 @@ function startKeepAlive() {
         console.log("[Neon Keep-Alive] Database connection restored.");
       }
       isDbHealthy = true;
+      lastDbError = null;
     } catch (e: any) {
       console.warn("[Neon Keep-Alive Ping Failed]:", e.message);
       isDbHealthy = false;
+      lastDbError = e.message;
     }
   }, 4 * 60 * 1000); // 4 minutes
   if (keepAliveTimer.unref) keepAliveTimer.unref();
@@ -79,20 +83,29 @@ function startKeepAlive() {
 let initPromise: Promise<boolean> | null = null;
 
 export async function initDatabase(): Promise<boolean> {
+  if (!process.env.DATABASE_URL?.trim()) {
+    lastDbError = "DATABASE_URL is not set in environment variables.";
+  }
+
   // Tables already created — just check if connection is still alive
   if (isInitialized) {
-    if (isDbHealthy) return true;
+    if (isDbHealthy) {
+      lastDbError = null;
+      return true;
+    }
 
     // DB was marked unhealthy (by keep-alive or pool error) — try a quick reconnect
     try {
       const p = getPool();
       await p.query("SELECT 1");
       isDbHealthy = true;
+      lastDbError = null;
       console.log("[Database] Reconnected to PostgreSQL after temporary outage.");
       return true;
     } catch (reconnectErr: any) {
       console.warn("[Database] Reconnect check failed:", reconnectErr.message);
       isDbHealthy = false;
+      lastDbError = reconnectErr.message;
       return false;
     }
   }
@@ -103,18 +116,22 @@ export async function initDatabase(): Promise<boolean> {
     let p = getPool();
     try {
       await p.query("SELECT 1");
+      lastDbError = null;
     } catch (primaryErr: any) {
       console.warn(`[Database] Primary connection failed (${primaryErr.message}). Testing local fallback...`);
+      lastDbError = primaryErr.message;
       const localUrl = process.env.LOCAL_DATABASE_URL || defaultLocalUrl;
       if (activeConnString !== localUrl) {
         try {
           p = getPool(localUrl);
           await p.query("SELECT 1");
           console.log(`[Database] Successfully connected to local PostgreSQL fallback: ${localUrl}`);
+          lastDbError = null;
         } catch (localErr: any) {
           console.warn(`[Database] Local fallback also failed (${localErr.message}). Falling back to in-memory store.`);
           initPromise = null;
           isDbHealthy = false;
+          lastDbError = primaryErr.message || localErr.message;
           return false;
         }
       } else {
@@ -1072,5 +1089,6 @@ export async function getOverallStats() {
     totalQtyMt: Math.round(totalQty * 100) / 100,
     uniqueVehicles,
     isPostgres: transitRes.isPostgres,
+    dbError: lastDbError,
   };
 }

@@ -58,7 +58,16 @@ export default function Home() {
   // Records state
   const [transitRecords, setTransitRecords] = useState<TransitRecord[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [overallStats, setOverallStats] = useState({
+  const [overallStats, setOverallStats] = useState<{
+    totalTransitRecords: number;
+    duplicateCount: number;
+    originalCount: number;
+    invoiceCount: number;
+    totalQtyMt: number;
+    uniqueVehicles: number;
+    isPostgres: boolean;
+    dbError?: string | null;
+  }>({
     totalTransitRecords: 0,
     duplicateCount: 0,
     originalCount: 0,
@@ -66,7 +75,10 @@ export default function Home() {
     totalQtyMt: 0,
     uniqueVehicles: 0,
     isPostgres: true,
+    dbError: null,
   });
+  const [isRetryingDb, setIsRetryingDb] = useState(false);
+  const [dbRetryStatus, setDbRetryStatus] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(false);
 
   // Filter Bar state
@@ -182,6 +194,34 @@ export default function Home() {
       console.error("Data load error:", err);
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  const handleRetryConnection = async () => {
+    setIsRetryingDb(true);
+    setDbRetryStatus("Testing connection to PostgreSQL / Neon database...");
+    try {
+      const statsRes = await fetch("/api/records?stats=true");
+      const statsData = await statsRes.json();
+      if (statsData.success && statsData.stats) {
+        setOverallStats(statsData.stats);
+        if (statsData.stats.isPostgres) {
+          setDbRetryStatus("Connected successfully! Reloading data...");
+          await loadActiveData();
+          setTimeout(() => setDbRetryStatus(null), 4000);
+        } else {
+          const detail =
+            statsData.stats.dbError ||
+            "PostgreSQL / Neon is unreachable. If deployed on Vercel, check DATABASE_URL in Settings and trigger a Redeploy.";
+          setDbRetryStatus(`Connection failed: ${detail}`);
+        }
+      } else {
+        setDbRetryStatus("Unable to reach backend API. Please refresh the page.");
+      }
+    } catch (err: any) {
+      setDbRetryStatus(`Error testing connection: ${err.message || "Network failure"}`);
+    } finally {
+      setIsRetryingDb(false);
     }
   };
 
@@ -549,41 +589,41 @@ export default function Home() {
     <div className="min-h-screen bg-[#050505] text-[#ededed] font-sans antialiased flex flex-col selection:bg-neutral-800 selection:text-white">
       {/* Top Navbar */}
       <header className="sticky top-0 z-40 w-full border-b border-[#1f1f1f] bg-[#050505]/95 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <img
               src="/logo.svg"
               alt="AP Mines Portal"
-              className="h-7 w-7 rounded object-contain shadow-sm"
+              className="h-6 w-6 sm:h-7 sm:w-7 rounded object-contain shadow-sm shrink-0"
             />
-            <div className="flex items-baseline gap-2">
-              <span className="font-semibold text-sm tracking-tight text-white font-mono">
-                AP MINES // PORTAL
+            <div className="flex items-baseline gap-1.5 sm:gap-2 truncate">
+              <span className="font-semibold text-xs sm:text-sm tracking-tight text-white font-mono truncate">
+                AP MINES
               </span>
-              <span className="hidden sm:inline-block text-[11px] font-mono text-neutral-500 uppercase tracking-widest">
-                OCR & Master Ledger
+              <span className="hidden md:inline-block text-[11px] font-mono text-neutral-500 uppercase tracking-widest">
+                // OCR & Master Ledger
               </span>
             </div>
             {overallStats.isPostgres ? (
-              <div className="hidden sm:flex items-center ml-4 px-2.5 py-0.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 text-[10px] font-mono text-emerald-300 gap-1.5" title="Connected to PostgreSQL / Neon Database">
+              <div className="hidden lg:flex items-center ml-2 px-2.5 py-0.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 text-[10px] font-mono text-emerald-300 gap-1.5 shrink-0" title="Connected to PostgreSQL / Neon Database">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
                 <span>POSTGRES CONNECTED</span>
               </div>
             ) : (
-              <div className="flex items-center ml-4 px-2.5 py-0.5 rounded-full border border-red-800 bg-red-950/60 text-[10px] font-mono text-red-300 gap-1.5 animate-pulse" title="PostgreSQL Database is Offline! Saving disabled to prevent data loss.">
+              <div className="flex items-center ml-1 sm:ml-2 px-2 py-0.5 rounded-full border border-red-800 bg-red-950/60 text-[9px] sm:text-[10px] font-mono text-red-300 gap-1 shrink-0 animate-pulse" title="PostgreSQL Database is Offline! Saving disabled to prevent data loss.">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500"></span>
-                <span>DATABASE OFFLINE</span>
+                <span>OFFLINE</span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 bg-neutral-950 hover:bg-neutral-900 text-neutral-300 hover:text-white text-xs px-2.5 py-1.5 rounded-md border border-neutral-800 transition"
+              className="flex items-center gap-1 bg-neutral-950 hover:bg-neutral-900 text-neutral-300 hover:text-white text-xs px-2 sm:px-2.5 py-1.5 rounded-md border border-neutral-800 transition"
               title="Google Sheets Live Sync Configuration"
             >
-              <Cloud className="h-3.5 w-3.5 text-emerald-400" />
+              <Cloud className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <span className="hidden sm:inline">Sheets Sync</span>
             </button>
 
@@ -591,11 +631,13 @@ export default function Home() {
             <a
               href="/api/export?docType=master"
               download
-              className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black text-xs px-3 py-1.5 rounded-md font-semibold transition shadow-sm"
+              className="flex items-center gap-1 sm:gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black text-xs px-2.5 sm:px-3 py-1.5 rounded-md font-semibold transition shadow-sm whitespace-nowrap"
               title="Download Combined Master Excel containing all 3 forms in separate tabs"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5" />
-              <span>Master Excel (3 Tabs)</span>
+              <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+              <span className="sm:hidden">Excel</span>
+              <span className="hidden sm:inline">Master Excel</span>
+              <span className="hidden md:inline text-[10px] opacity-80">(3 Tabs)</span>
             </a>
 
             {/* When inside a specific form: Option to export just this form */}
@@ -603,10 +645,10 @@ export default function Home() {
               <a
                 href={`/api/export?docType=${selectedDocType}&${buildQueryString()}`}
                 download
-                className="flex items-center gap-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 hover:text-white border border-neutral-700 text-xs px-2.5 py-1.5 rounded-md font-medium transition shadow-sm"
+                className="flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 hover:text-white border border-neutral-700 text-xs px-2 sm:px-2.5 py-1.5 rounded-md font-medium transition shadow-sm whitespace-nowrap"
                 title={`Export ${getDocTitle(selectedDocType)} records only`}
               >
-                <FileSpreadsheet className="h-3.5 w-3.5 text-neutral-400" />
+                <FileSpreadsheet className="h-3.5 w-3.5 text-neutral-400 shrink-0" />
                 <span className="hidden sm:inline">This Form</span>
                 <span>.xlsx</span>
               </a>
@@ -617,47 +659,70 @@ export default function Home() {
 
       {/* Database Offline Warning Banner */}
       {!overallStats.isPostgres && (
-        <div className="bg-red-950/90 border-b border-red-800 text-red-200 px-4 py-2.5 text-xs font-mono flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-            <span>
-              <strong>Database Offline:</strong> PostgreSQL / Neon database is currently unreachable. Record saving is temporarily disabled to prevent data loss.
-            </span>
+        <div className="bg-red-950/95 border-b border-red-800/80 text-red-200 px-3 sm:px-6 py-3 text-xs font-mono shadow-md">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+              <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5 sm:mt-0" />
+              <div className="space-y-0.5 min-w-0">
+                <div className="font-semibold text-red-200">
+                  Database Offline: PostgreSQL / Neon is currently unreachable.
+                </div>
+                {dbRetryStatus ? (
+                  <div className={`text-[11px] font-sans break-words ${dbRetryStatus.includes("successfully") ? "text-emerald-300 font-semibold" : "text-amber-300 font-medium"}`}>
+                    {dbRetryStatus}
+                  </div>
+                ) : overallStats.dbError ? (
+                  <div className="text-[11px] font-sans text-amber-300/90 break-words">
+                    Status: {overallStats.dbError}
+                  </div>
+                ) : (
+                  <div className="text-[11px] font-sans text-red-300/80">
+                    Record saving is temporarily disabled to prevent data loss.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 pt-1 sm:pt-0">
+              <button
+                type="button"
+                disabled={isRetryingDb}
+                onClick={handleRetryConnection}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-900 hover:bg-red-800 active:bg-red-950 text-white text-[11px] font-mono transition shadow-sm disabled:opacity-60 cursor-pointer"
+              >
+                <RefreshCw className={`h-3 w-3 shrink-0 ${isRetryingDb ? "animate-spin text-amber-300" : ""}`} />
+                <span>{isRetryingDb ? "Connecting to Neon..." : "Retry Connection"}</span>
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => loadActiveData()}
-            className="px-3 py-1 rounded bg-red-900 hover:bg-red-800 text-white text-[11px] font-mono transition shadow-sm"
-          >
-            Retry Connection
-          </button>
         </div>
       )}
 
       {/* VIEW 1: HOME PAGE (ONLY 3 OPTIONS AS REQUESTED BY USER) */}
       {selectedDocType === null ? (
-        <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-12 flex flex-col justify-center">
-          <div className="text-center max-w-2xl mx-auto mb-10">
-            <div className="flex justify-center mb-4">
+        <main className="flex-1 max-w-5xl w-full mx-auto px-3.5 sm:px-6 py-6 sm:py-12 flex flex-col justify-center">
+          <div className="text-center max-w-2xl mx-auto mb-6 sm:mb-10">
+            <div className="flex justify-center mb-3 sm:mb-4">
               <img
                 src="/logo.svg"
                 alt="AP Mines Portal Logo"
-                className="h-16 w-16 drop-shadow-[0_4px_16px_rgba(16,185,129,0.3)] animate-pulse"
+                className="h-12 w-12 sm:h-16 sm:w-16 drop-shadow-[0_4px_16px_rgba(16,185,129,0.3)] animate-pulse"
               />
             </div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-neutral-800 bg-[#0d0d0d] text-xs font-mono text-neutral-400 mb-4">
-              <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-              Andhra Pradesh Department of Mines & Geology
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full border border-neutral-800 bg-[#0d0d0d] text-[11px] sm:text-xs font-mono text-neutral-400 mb-3 sm:mb-4">
+              <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-400 shrink-0"></span>
+              Andhra Pradesh Dept of Mines & Geology
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+            <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-white">
               Document Workflow Selection
             </h1>
-            <p className="text-xs sm:text-sm text-neutral-400 mt-2 leading-relaxed">
+            <p className="text-xs sm:text-sm text-neutral-400 mt-2 leading-relaxed px-2">
               Select one of the 3 official documents below. Each option opens a dedicated upload scanner with live camera and crop tools, and an isolated Master Log with custom filter tools.
             </p>
           </div>
 
           {/* THE 3 CLEAN OPTIONS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
             {/* OPTION 1: Transit Pass (Duplicate) */}
             <div
               onClick={() => {
