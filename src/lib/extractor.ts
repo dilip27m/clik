@@ -23,7 +23,7 @@ EXTRACT ONLY THESE 6 CORE FIELDS:
 1. stationaryNo: Stationary number near header (e.g., "DD 3111657" → clean as "DD3111657", or "MDLA8102983"). Remove all spaces.
 2. dispatchDate: Date of dispatch ONLY (no time). Return as DD-MM-YYYY format (e.g., "24-09-2026").
 3. mdlNameConsigneeName: Consignee name from "MDL Name / Consignee Name:" or "Consignee Name:".
-4. mineralName: MUST be exactly one of: "Grey Barytes - A", "Grey Barytes - B", or "Grey Barytes - C and D".
+4. mineralName: MUST be exactly one of: "Grey Barytes - A", "Grey Barytes - B", or "Grey Barytes - C and D". Look carefully at the printed or handwritten grade: if it indicates "A", "Grade A", or "A Grade", return "Grey Barytes - A"; if "B", "Grade B", or "B Grade", return "Grey Barytes - B"; if "C & D", "C and D", "C", or "D", return "Grey Barytes - C and D". CRITICAL: Do NOT mistake the letter 'D' in the English word 'GRADE' as Grade D!
 5. vehicleNo: Vehicle number (e.g., "AP27UB5157"). Remove all spaces and hyphens.
 6. dispatchQty: For Duplicate → "Dispatch Qty" in MT. For Original → "PRODUCTION QUANTITY (MT)" or "Dispatched Quantity". Always a number.
 
@@ -74,10 +74,33 @@ Return strictly valid JSON:
 `;
 
 export function normalizeMineralGrade(raw: string): string {
-  const upper = (raw || "").toUpperCase();
-  if (upper.includes("C") || upper.includes("D")) return "Grey Barytes - C and D";
-  if (upper.includes("B")) return "Grey Barytes - B";
-  if (upper.includes("A")) return "Grey Barytes - A";
+  const text = (raw || "").trim().toUpperCase();
+  if (!text) return "Grey Barytes - C and D";
+
+  // Check C & D first (e.g. "C & D", "C AND D", "C+D")
+  if (/\bC\s*(&|AND|\+)?\s*D\b/i.test(text)) {
+    return "Grey Barytes - C and D";
+  }
+
+  // Strip noise words that contain letters A, B, C, D (e.g. 'AND', 'BARYTES', 'GREY', 'GRADE')
+  const stripped = text
+    .replace(/\bAND\b/gi, " ")
+    .replace(/\bBARYTES\b/gi, " ")
+    .replace(/\bGREY\b/gi, " ")
+    .replace(/\bGRADE\b/gi, " ");
+
+  const hasA = /\bA\b/.test(stripped);
+  const hasB = /\bB\b/.test(stripped);
+  const hasC = /\bC\b/.test(stripped);
+  const hasD = /\bD\b/.test(stripped);
+
+  if (hasA && !hasB && !hasC && !hasD) return "Grey Barytes - A";
+  if (hasB && !hasA && !hasC && !hasD) return "Grey Barytes - B";
+  if (hasC || hasD) return "Grey Barytes - C and D";
+
+  if (text.includes("- A") || text.includes("GRADE A") || text.includes("A GRADE")) return "Grey Barytes - A";
+  if (text.includes("- B") || text.includes("GRADE B") || text.includes("B GRADE")) return "Grey Barytes - B";
+
   return "Grey Barytes - C and D";
 }
 
@@ -321,38 +344,71 @@ export async function extractTaxInvoice(
   throw new Error("OCR extraction failed. Please ensure the invoice is clear, well-lit, and properly oriented.");
 }
 
-// ────── Universal Document Classifier ──────
-// First classifies the document type, then delegates to the correct extractor.
-const UNIVERSAL_CLASSIFICATION_PROMPT = `
-You are an expert document classifier for the Government of Andhra Pradesh – Department of Mines and Geology.
+// ────── Universal Single-Pass Classifier & Extractor ──────
+// Uses a unified single-pass prompt so document classification and field extraction
+// happen in ONE API roundtrip (~3-4s) instead of two sequential roundtrips (~16s).
+const UNIVERSAL_SINGLE_PASS_PROMPT = `
+You are an expert OCR and document classification engine for the Government of Andhra Pradesh – Department of Mines and Geology.
 
-Look at this image and classify it into ONE of these 3 categories:
+TASK:
+1. Examine the image and determine its document type:
+   - "transit_original": Header has "FORM E" or "TRANSIT PASS (Original)". Stationary No starts with "MDLA". Quantity is "PRODUCTION QUANTITY (MT)".
+   - "transit_duplicate": Header has "TRANSIT FORM (Duplicate)" or "OMMS 2.0". Stationary No starts with "DD". Quantity is "Dispatch Qty".
+   - "invoice": Tax Invoice / Commercial Invoice. Contains "Tax Invoice", "Invoice No", "Bill To", "CGST", "SGST", etc.
+   - "unknown": None of the above (unrelated image, illegible photo, etc.).
 
-1. "transit_duplicate" — Transit Form (Duplicate) / OMMS 2.0 form. Header says "TRANSIT FORM (Duplicate)". Stationary No starts with "DD".
-2. "transit_original" — Form E / Transit Pass (Original). Header says "FORM E" or "TRANSIT PASS (Original)". Stationary No starts with "MDLA".
-3. "invoice" — A Tax Invoice / Commercial Invoice. Contains "Tax Invoice", "Invoice No", "Bill To", "CGST", "SGST", etc.
+2. Extract all corresponding fields:
 
-If the image is NONE of these (random photo, unrelated document, etc.):
-return { "documentType": "unknown", "confidence": 0, "reason": "This image does not appear to be any recognized AP Mines document." }
+If Transit Form ("transit_duplicate" or "transit_original"):
+- stationaryNo: Clean alphanumeric string without spaces (e.g. "DD3111657", "MDLA8102983")
+- dispatchDate: DD-MM-YYYY format only (e.g. "24-09-2026")
+- mdlNameConsigneeName: Consignee name from "MDL Name / Consignee Name:"
+- mineralName: MUST be strictly one of: "Grey Barytes - A", "Grey Barytes - B", or "Grey Barytes - C and D". Look carefully at the grade letter: "A" / "Grade A" -> "Grey Barytes - A"; "B" / "Grade B" -> "Grey Barytes - B"; "C & D" / "C and D" / "C" / "D" -> "Grey Barytes - C and D". Do NOT mistake the English letter D in the word 'GRADE' for Grade D!
+- vehicleNo: Alphanumeric string without spaces/hyphens (e.g. "AP27UB5157")
+- dispatchQty: Numeric quantity in MT
+- productionQty: Numeric quantity in MT (for original form)
+
+If Tax Invoice ("invoice"):
+- invoiceNo: Primary key invoice number (e.g. "2026-27/1")
+- invoiceDate: Date string (e.g. "06/04/2026")
+- billTo: Buyer/Consignee full name
+- quantity: Numeric MT
+- ratePerUnit: Price in Rupees
+- taxableAmount: Taxable amount in Rupees
+- cgstAmount: CGST amount in Rupees
+- sgstAmount: SGST amount in Rupees
+- totalAmount: Grand total in Rupees
 
 Return valid JSON:
 {
-  "documentType": "transit_duplicate" | "transit_original" | "invoice" | "unknown",
-  "confidence": number (0-100),
-  "reason": string (brief one-line explanation)
+  "detectedDocType": "transit_duplicate" | "transit_original" | "invoice" | "unknown",
+  "confidence": number,
+  "isWrongDocument": boolean,
+  "rejectionReason": string,
+  "stationaryNo": string,
+  "dispatchDate": string,
+  "mdlNameConsigneeName": string,
+  "mineralName": string,
+  "vehicleNo": string,
+  "dispatchQty": number,
+  "productionQty": number,
+  "invoiceNo": string,
+  "invoiceDate": string,
+  "billTo": string,
+  "quantity": number,
+  "ratePerUnit": number,
+  "taxableAmount": number,
+  "cgstAmount": number,
+  "sgstAmount": number,
+  "totalAmount": number
 }
 `;
 
-export type ClassificationResult = {
-  documentType: "transit_duplicate" | "transit_original" | "invoice" | "unknown";
-  confidence: number;
-  reason: string;
-};
-
-export async function classifyDocument(
+export async function classifyAndExtract(
   base64Image: string,
-  mimeType: string = "image/jpeg"
-): Promise<ClassificationResult> {
+  mimeType: string = "image/jpeg",
+  existingTransitKeys: string[] = []
+) {
   const keyPool = getServerKeyPool();
   if (keyPool.length === 0) {
     throw new Error("Server configuration error: Gemini API keys not found in .env.");
@@ -360,6 +416,7 @@ export async function classifyDocument(
 
   const cleanBase64 = (base64Image || "").replace(/^data:[^;]+;base64,/, "").trim();
 
+  // Try fast single-pass extraction first
   for (let i = 0; i < keyPool.length; i++) {
     const currentKey = keyPool[i];
     const ai = new GoogleGenAI({ apiKey: currentKey });
@@ -372,7 +429,7 @@ export async function classifyDocument(
             {
               role: "user",
               parts: [
-                { text: UNIVERSAL_CLASSIFICATION_PROMPT },
+                { text: UNIVERSAL_SINGLE_PASS_PROMPT },
                 {
                   inlineData: {
                     data: cleanBase64,
@@ -387,75 +444,92 @@ export async function classifyDocument(
         const responseText = response.text || "";
         const parsed = parseGeminiJson<any>(responseText);
 
+        const detectedType: "transit_duplicate" | "transit_original" | "invoice" | "unknown" =
+          parsed.detectedDocType || "unknown";
+        const confidence = typeof parsed.confidence === "number" ? parsed.confidence : 90;
+
+        if (detectedType === "unknown" || parsed.isWrongDocument || confidence < 30) {
+          return {
+            success: false,
+            isWrongDocument: true,
+            detectedType: "unknown" as const,
+            classification: {
+              documentType: "unknown" as const,
+              confidence,
+              reason: parsed.rejectionReason || "Unable to identify this document as an AP Mines form or invoice.",
+            },
+            rejectionReason:
+              parsed.rejectionReason || "Unable to identify this document. Please upload an AP Mines Transit Form or Tax Invoice.",
+          };
+        }
+
+        // Branch 1: Invoice
+        if (detectedType === "invoice") {
+          const invoiceData: InvoiceRecord = {
+            invoiceNo: (parsed.invoiceNo || "").trim(),
+            invoiceDate: normalizeDate(parsed.invoiceDate),
+            billTo: (parsed.billTo || "").trim(),
+            quantity: parsed.quantity !== null && parsed.quantity !== undefined ? Number(parsed.quantity) : null,
+            ratePerUnit: parsed.ratePerUnit !== null && parsed.ratePerUnit !== undefined ? Number(parsed.ratePerUnit) : null,
+            taxableAmount: parsed.taxableAmount !== null && parsed.taxableAmount !== undefined ? Number(parsed.taxableAmount) : null,
+            cgstAmount: parsed.cgstAmount !== null && parsed.cgstAmount !== undefined ? Number(parsed.cgstAmount) : null,
+            sgstAmount: parsed.sgstAmount !== null && parsed.sgstAmount !== undefined ? Number(parsed.sgstAmount) : null,
+            totalAmount: parsed.totalAmount !== null && parsed.totalAmount !== undefined ? Number(parsed.totalAmount) : null,
+          };
+
+          return {
+            success: true,
+            isWrongDocument: false,
+            detectedType,
+            classification: {
+              documentType: detectedType,
+              confidence,
+              reason: "Identified as Tax Invoice",
+            },
+            data: invoiceData,
+            isInvoice: true,
+            source: "gemini-vision-singlepass",
+          };
+        }
+
+        // Branch 2: Transit Form (Duplicate or Original)
+        const isOriginal = detectedType === "transit_original";
+        const qtyVal = parsed.dispatchQty !== null && parsed.dispatchQty !== undefined
+          ? Number(parsed.dispatchQty)
+          : (parsed.productionQty !== null && parsed.productionQty !== undefined ? Number(parsed.productionQty) : null);
+
+        const transitData: TransitRecord = {
+          stationaryNo: (parsed.stationaryNo || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
+          docType: detectedType,
+          dispatchDate: normalizeDate(parsed.dispatchDate),
+          mdlNameConsigneeName: parsed.mdlNameConsigneeName || "",
+          mineralName: normalizeMineralGrade(parsed.mineralName),
+          vehicleNo: (parsed.vehicleNo || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
+          dispatchQty: qtyVal,
+          productionQty: isOriginal ? qtyVal : null,
+        };
+
+        const validation = validateTransitRecord(transitData, existingTransitKeys);
+
         return {
-          documentType: parsed.documentType || "unknown",
-          confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
-          reason: parsed.reason || "No reason provided",
+          success: true,
+          isWrongDocument: false,
+          detectedType,
+          classification: {
+            documentType: detectedType,
+            confidence,
+            reason: `Identified as ${isOriginal ? "Transit Pass (Original)" : "Transit Form (Duplicate)"}`,
+          },
+          data: transitData,
+          validation,
+          isInvoice: false,
+          source: "gemini-vision-singlepass",
         };
       } catch (err: any) {
-        console.warn(`[Classifier] Model ${modelName} failed on key index ${i}:`, err.message?.slice(0, 100));
+        console.warn(`[Universal Single-Pass] Model ${modelName} failed on key index ${i}:`, err.message?.slice(0, 100));
       }
     }
   }
 
-  throw new Error("Document classification failed. Please ensure the image is clear and well-lit.");
-}
-
-// Universal extraction: classify first, then extract with the right extractor
-export async function classifyAndExtract(
-  base64Image: string,
-  mimeType: string = "image/jpeg",
-  existingTransitKeys: string[] = []
-) {
-  // Step 1: Classify
-  const classification = await classifyDocument(base64Image, mimeType);
-
-  if (classification.documentType === "unknown" || classification.confidence < 30) {
-    return {
-      success: false,
-      isWrongDocument: true,
-      detectedType: "unknown" as const,
-      classification,
-      rejectionReason: classification.reason || "Unable to identify this document. Please upload an AP Mines Transit Form or Tax Invoice.",
-    };
-  }
-
-  // Step 2: Extract based on classified type
-  const detectedType = classification.documentType;
-
-  if (detectedType === "invoice") {
-    const result = await extractTaxInvoice(base64Image, mimeType);
-    return {
-      success: !result.isWrongDocument,
-      isWrongDocument: result.isWrongDocument || false,
-      detectedType,
-      classification,
-      rejectionReason: result.rejectionReason,
-      data: result.data,
-      isInvoice: true,
-      source: result.source,
-    };
-  }
-
-  // Transit form (original or duplicate)
-  const result = await extractTransitForm(
-    base64Image,
-    mimeType,
-    existingTransitKeys,
-    detectedType // pass detected type so cross-type validation is skipped
-  );
-
-  return {
-    success: !result.isWrongDocument,
-    isWrongDocument: result.isWrongDocument || false,
-    detectedType,
-    classification,
-    rejectionReason: result.isWrongDocument
-      ? (result as any).rejectionReason
-      : undefined,
-    data: result.data,
-    validation: result.validation,
-    isInvoice: false,
-    source: result.source,
-  };
+  throw new Error("Universal document processing failed. Please ensure image is well-lit and legible.");
 }

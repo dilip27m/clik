@@ -150,6 +150,7 @@ export default function Home() {
   const [editingTransitRecord, setEditingTransitRecord] = useState<TransitRecord | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<InvoiceRecord | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Live Camera & Image Cropper state
   const [showCameraModal, setShowCameraModal] = useState(false);
@@ -469,6 +470,7 @@ export default function Home() {
 
   // Save Record
   const handleSaveCurrentRecord = async () => {
+    setIsSaving(true);
     setSaveStatus({ type: null, message: "" });
 
     // Determine the effective docType for saving (universal uses detected type)
@@ -476,117 +478,121 @@ export default function Home() {
       ? (detectedUniversalType?.type || "transit_duplicate")
       : selectedDocType;
 
-    // 1. Save Invoice
-    if ((effectiveDocType === "invoice" || selectedDocType === "invoice") && currentInvoice) {
-      try {
-        const res = await fetch("/api/invoices", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(currentInvoice),
-        });
-        const data = await res.json();
-
-        if (res.status === 409 || data.isDuplicate) {
-          setSaveStatus({
-            type: "duplicate",
-            message: `Invoice No '${currentInvoice.invoiceNo}' already exists in database. Duplicate prevented!`,
+    try {
+      // 1. Save Invoice
+      if ((effectiveDocType === "invoice" || selectedDocType === "invoice") && currentInvoice) {
+        try {
+          const res = await fetch("/api/invoices", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(currentInvoice),
           });
-          return;
-        }
+          const data = await res.json();
 
-        if (data.success) {
-          let driveSynced = false;
-          if (driveConfig.enabled && driveConfig.webhookUrl) {
-            try {
-              const driveRes = await fetch("/api/sync/googledrive", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  invoice: currentInvoice,
-                  docType: "invoice",
-                  config: driveConfig,
-                }),
-              });
-              const driveData = await driveRes.json();
-              driveSynced = driveData.success;
-            } catch (e) {
-              console.warn("Google Drive invoice sync failed:", e);
-            }
+          if (res.status === 409 || data.isDuplicate) {
+            setSaveStatus({
+              type: "duplicate",
+              message: `Invoice No '${currentInvoice.invoiceNo}' already exists in database. Duplicate prevented!`,
+            });
+            return;
           }
 
-          setSaveStatus({
-            type: "success",
-            message: `Tax Invoice ${currentInvoice.invoiceNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
-            googleDriveSynced: driveSynced,
-          });
-          loadActiveData();
-        } else {
-          setSaveStatus({ type: "error", message: data.error || "Failed to save invoice." });
-        }
-      } catch (err: any) {
-        setSaveStatus({ type: "error", message: err.message || "Network error while saving." });
-      }
-      return;
-    }
-
-    // 2. Save Transit Form
-    if (currentTransitRecord) {
-      const transitDocType = selectedDocType === "universal"
-        ? (detectedUniversalType?.type || "transit_duplicate")
-        : (selectedDocType || "transit_duplicate");
-
-      try {
-        const res = await fetch("/api/records", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...currentTransitRecord,
-            docType: transitDocType,
-          }),
-        });
-        const data = await res.json();
-
-        if (res.status === 409 || data.isDuplicate) {
-          setSaveStatus({
-            type: "duplicate",
-            message: `Stationary No '${currentTransitRecord.stationaryNo}' already exists in database. Duplicate prevented!`,
-          });
-          return;
-        }
-
-        if (data.success) {
-          let driveSynced = false;
-          if (driveConfig.enabled && driveConfig.webhookUrl) {
-            try {
-              const driveRes = await fetch("/api/sync/googledrive", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  record: currentTransitRecord,
-                  docType: transitDocType,
-                  config: driveConfig,
-                }),
-              });
-              const driveData = await driveRes.json();
-              driveSynced = driveData.success;
-            } catch (e) {
-              console.warn("Drive sync failed:", e);
+          if (data.success) {
+            let driveSynced = data.googleDriveSynced ?? false;
+            if (!driveSynced && driveConfig.enabled && driveConfig.webhookUrl) {
+              try {
+                const driveRes = await fetch("/api/sync/googledrive", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    invoice: currentInvoice,
+                    docType: "invoice",
+                    config: driveConfig,
+                  }),
+                });
+                const driveData = await driveRes.json();
+                driveSynced = driveData.success;
+              } catch (e) {
+                console.warn("Google Drive invoice sync failed:", e);
+              }
             }
+
+            setSaveStatus({
+              type: "success",
+              message: `Tax Invoice ${currentInvoice.invoiceNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
+              googleDriveSynced: driveSynced,
+            });
+            loadActiveData();
+          } else {
+            setSaveStatus({ type: "error", message: data.error || "Failed to save invoice." });
+          }
+        } catch (err: any) {
+          setSaveStatus({ type: "error", message: err.message || "Network error while saving." });
+        }
+        return;
+      }
+
+      // 2. Save Transit Form
+      if (currentTransitRecord) {
+        const transitDocType = selectedDocType === "universal"
+          ? (detectedUniversalType?.type || "transit_duplicate")
+          : (selectedDocType || "transit_duplicate");
+
+        try {
+          const res = await fetch("/api/records", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...currentTransitRecord,
+              docType: transitDocType,
+            }),
+          });
+          const data = await res.json();
+
+          if (res.status === 409 || data.isDuplicate) {
+            setSaveStatus({
+              type: "duplicate",
+              message: `Stationary No '${currentTransitRecord.stationaryNo}' already exists in database. Duplicate prevented!`,
+            });
+            return;
           }
 
-          const typeLabel = getDocTitle(transitDocType as DocumentTypeOption);
-          setSaveStatus({
-            type: "success",
-            message: `${typeLabel} ${currentTransitRecord.stationaryNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
-            googleDriveSynced: driveSynced,
-          });
-          loadActiveData();
-        } else {
-          setSaveStatus({ type: "error", message: data.error || "Failed to save record." });
+          if (data.success) {
+            let driveSynced = data.googleDriveSynced ?? false;
+            if (!driveSynced && driveConfig.enabled && driveConfig.webhookUrl) {
+              try {
+                const driveRes = await fetch("/api/sync/googledrive", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    record: currentTransitRecord,
+                    docType: transitDocType,
+                    config: driveConfig,
+                  }),
+                });
+                const driveData = await driveRes.json();
+                driveSynced = driveData.success;
+              } catch (e) {
+                console.warn("Drive sync failed:", e);
+              }
+            }
+
+            const typeLabel = getDocTitle(transitDocType as DocumentTypeOption);
+            setSaveStatus({
+              type: "success",
+              message: `${typeLabel} ${currentTransitRecord.stationaryNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
+              googleDriveSynced: driveSynced,
+            });
+            loadActiveData();
+          } else {
+            setSaveStatus({ type: "error", message: data.error || "Failed to save record." });
+          }
+        } catch (err: any) {
+          setSaveStatus({ type: "error", message: err.message || "Network error while saving." });
         }
-      } catch (err: any) {
-        setSaveStatus({ type: "error", message: err.message || "Network error while saving." });
       }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1253,11 +1259,20 @@ export default function Home() {
                         </button>
                         <button
                           onClick={handleSaveCurrentRecord}
-                          disabled={!currentInvoice.invoiceNo}
+                          disabled={isSaving || !currentInvoice.invoiceNo}
                           className="px-4 py-1.5 rounded text-xs font-semibold text-black bg-white hover:bg-neutral-200 transition shadow-sm disabled:opacity-40 flex items-center gap-1.5"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Save to Invoices Master Log
+                          {isSaving ? (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              <span>Saving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="h-3.5 w-3.5" />
+                              <span>Save</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -1525,11 +1540,20 @@ export default function Home() {
                         </button>
                         <button
                           onClick={handleSaveCurrentRecord}
-                          disabled={!currentTransitRecord.stationaryNo}
+                          disabled={isSaving || !currentTransitRecord.stationaryNo}
                           className="px-4 py-1.5 rounded text-xs font-semibold text-black bg-white hover:bg-neutral-200 transition shadow-sm disabled:opacity-40 flex items-center gap-1.5"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Save to {getDocTitle(selectedDocType)} Master Log
+                          {isSaving ? (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              <span>Saving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="h-3.5 w-3.5" />
+                              <span>Save</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -2826,19 +2850,7 @@ export default function Home() {
         docTitle={getDocTitle(selectedDocType)}
       />
 
-      {/* Footer */}
-      <footer className="border-t border-[#1f1f1f] bg-[#050505] py-4 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] font-mono text-neutral-500">
-          <div>
-            AP Mines Data Portal • 3 Dedicated Workflows: Transit Duplicate, Transit Original, Tax Invoice
-          </div>
-          <div className="flex items-center gap-3">
-            <span>Primary Keys: stationaryNo / invoiceNo</span>
-            <span>•</span>
-            <span>PostgreSQL (5433)</span>
-          </div>
-        </div>
-      </footer>
+      {/* Footer removed as requested */}
     </div>
   );
 }

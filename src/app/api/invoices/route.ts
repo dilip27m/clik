@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllInvoices, saveInvoice } from "@/lib/db";
 import { InvoiceRecord, MasterLogFilters } from "@/types/transit";
 import { validateInvoice } from "@/lib/validation";
+import { syncRecordToGoogleDrive } from "@/lib/googledrive";
 
 export async function GET(req: NextRequest) {
   try {
@@ -97,10 +98,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Automatically sync to Google Sheets if WEBHOOK is configured
+    const webhookUrl = process.env.GOOGLE_DRIVE_WEBHOOK_URL?.trim();
+    let googleDriveSynced = false;
+    if (webhookUrl) {
+      try {
+        const syncRes = await syncRecordToGoogleDrive(
+          { invoice: saveResult.invoice || body, docType: "invoice" },
+          { enabled: true, webhookUrl }
+        );
+        googleDriveSynced = syncRes.success;
+      } catch (syncErr) {
+        console.warn("[Auto-Sync Google Sheets Invoice Error]:", syncErr);
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
         invoice: saveResult.invoice,
+        googleDriveSynced,
         message: `Successfully saved Invoice ${body.invoiceNo}`,
         warnings: validation.warnings,
       },

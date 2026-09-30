@@ -6,6 +6,7 @@ import {
 } from "@/lib/db";
 import { validateTransitRecord } from "@/lib/validation";
 import { TransitRecord, MasterLogFilters } from "@/types/transit";
+import { syncRecordToGoogleDrive } from "@/lib/googledrive";
 
 export async function GET(req: NextRequest) {
   try {
@@ -119,10 +120,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Automatically sync to Google Sheets if WEBHOOK is configured
+    const webhookUrl = process.env.GOOGLE_DRIVE_WEBHOOK_URL?.trim();
+    let googleDriveSynced = false;
+    if (webhookUrl) {
+      try {
+        const syncRes = await syncRecordToGoogleDrive(
+          { record: saveResult.record || body, docType: body.docType },
+          { enabled: true, webhookUrl }
+        );
+        googleDriveSynced = syncRes.success;
+      } catch (syncErr) {
+        console.warn("[Auto-Sync Google Sheets Error]:", syncErr);
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
         record: saveResult.record,
+        googleDriveSynced,
         message: `Successfully saved Transit Form ${body.stationaryNo}`,
       },
       { status: 201 }
