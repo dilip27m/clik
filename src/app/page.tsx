@@ -111,7 +111,14 @@ export default function Home() {
     googleDriveSynced?: boolean;
   }>({ type: null, message: "" });
 
-  // Google Sheets Live Sync Configuration
+  // Google Sheets link & configuration
+  const [sheetUrl, setSheetUrl] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("AP_MINES_GOOGLE_SHEET_URL");
+      if (saved) return saved;
+    }
+    return process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL || "https://docs.google.com/spreadsheets";
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [driveConfig, setDriveConfig] = useState<GoogleDriveSyncConfig>(() => {
     if (typeof window === "undefined") return { enabled: false, webhookUrl: "" };
@@ -605,9 +612,9 @@ export default function Home() {
               </span>
             </div>
             {overallStats.isPostgres ? (
-              <div className="hidden lg:flex items-center ml-2 px-2.5 py-0.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 text-[10px] font-mono text-emerald-300 gap-1.5 shrink-0" title="Connected to PostgreSQL / Neon Database">
+              <div className="flex items-center ml-1 sm:ml-2 px-2 py-0.5 rounded-full border border-emerald-900/60 bg-emerald-950/30 text-[9px] sm:text-[10px] font-mono text-emerald-300 gap-1 shrink-0" title="Connected to PostgreSQL / Neon Database">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                <span>POSTGRES CONNECTED</span>
+                <span><span className="hidden sm:inline">POSTGRES </span>CONNECTED</span>
               </div>
             ) : (
               <div className="flex items-center ml-1 sm:ml-2 px-2 py-0.5 rounded-full border border-red-800 bg-red-950/60 text-[9px] sm:text-[10px] font-mono text-red-300 gap-1 shrink-0 animate-pulse" title="PostgreSQL Database is Offline! Saving disabled to prevent data loss.">
@@ -618,14 +625,18 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1 bg-neutral-950 hover:bg-neutral-900 text-neutral-300 hover:text-white text-xs px-2 sm:px-2.5 py-1.5 rounded-md border border-neutral-800 transition"
-              title="Google Sheets Live Sync Configuration"
+            {/* Direct Google Sheets Link */}
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 bg-neutral-950 hover:bg-neutral-900 text-neutral-300 hover:text-white text-xs px-2 sm:px-2.5 py-1.5 rounded-md border border-neutral-800 transition"
+              title="Open Google Sheets in a new tab"
             >
-              <Cloud className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-              <span className="hidden sm:inline">Sheets Sync</span>
-            </button>
+              <ExternalLink className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">Google Sheets</span>
+              <span className="sm:hidden">Sheets</span>
+            </a>
 
             {/* Always visible: Master Combined Export (All 3 Forms in 3 Tabs) */}
             <a
