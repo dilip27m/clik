@@ -429,22 +429,34 @@ export default function Home() {
     if (!confirm(`Delete record: ${stationaryNo}?`)) return;
     try {
       const docParam = selectedDocType ? `?docType=${selectedDocType}` : "";
-      await fetch(`/api/records/${encodeURIComponent(stationaryNo)}${docParam}`, { method: "DELETE" });
+      const res = await fetch(`/api/records/${encodeURIComponent(stationaryNo)}${docParam}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || "Failed to delete record.");
+        return;
+      }
       loadActiveData();
       if (detailTransitRecord?.stationaryNo === stationaryNo) setDetailTransitRecord(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err.message || "Network error while deleting record.");
     }
   };
 
   const handleDeleteInvoice = async (invoiceNo: string) => {
     if (!confirm(`Delete Tax Invoice: ${invoiceNo}?`)) return;
     try {
-      await fetch(`/api/invoices/${encodeURIComponent(invoiceNo)}`, { method: "DELETE" });
+      const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceNo)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || "Failed to delete invoice.");
+        return;
+      }
       loadActiveData();
       if (detailInvoice?.invoiceNo === invoiceNo) setDetailInvoice(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err.message || "Network error while deleting invoice.");
     }
   };
 

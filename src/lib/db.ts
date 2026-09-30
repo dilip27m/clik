@@ -611,25 +611,28 @@ export async function deleteTransitRecord(
 ): Promise<boolean> {
   const cleanStationary = stationaryNo.trim().toUpperCase();
   const dbReady = await initDatabase();
-  if (dbReady) {
-    try {
-      const p = getPool();
-      if (docType?.includes("original")) {
-        await p.query("DELETE FROM transit_pass_original WHERE stationary_no = $1", [cleanStationary]);
-      } else if (docType?.includes("duplicate")) {
-        await p.query("DELETE FROM transit_pass_duplicate WHERE stationary_no = $1", [cleanStationary]);
-      } else {
-        await Promise.all([
-          p.query("DELETE FROM transit_pass_original WHERE stationary_no = $1", [cleanStationary]),
-          p.query("DELETE FROM transit_pass_duplicate WHERE stationary_no = $1", [cleanStationary]),
-        ]);
-      }
-    } catch (err: any) {
-      console.error("[Database] Error deleting transit record:", err.message);
-    }
+  if (!dbReady) {
+    console.error("[Database] Cannot delete transit record: Database is offline");
+    return false;
   }
-  inMemoryTransitStore.delete(cleanStationary);
-  return true;
+  try {
+    const p = getPool();
+    if (docType?.includes("original")) {
+      await p.query("DELETE FROM transit_pass_original WHERE stationary_no = $1", [cleanStationary]);
+    } else if (docType?.includes("duplicate")) {
+      await p.query("DELETE FROM transit_pass_duplicate WHERE stationary_no = $1", [cleanStationary]);
+    } else {
+      await Promise.all([
+        p.query("DELETE FROM transit_pass_original WHERE stationary_no = $1", [cleanStationary]),
+        p.query("DELETE FROM transit_pass_duplicate WHERE stationary_no = $1", [cleanStationary]),
+      ]);
+    }
+    inMemoryTransitStore.delete(cleanStationary);
+    return true;
+  } catch (err: any) {
+    console.error("[Database] Error deleting transit record:", err.message);
+    return false;
+  }
 }
 
 export async function updateTransitRecord(
@@ -942,16 +945,19 @@ export async function saveInvoice(
 export async function deleteInvoice(invoiceNo: string): Promise<boolean> {
   const cleanInvoiceNo = invoiceNo.trim();
   const dbReady = await initDatabase();
-  if (dbReady) {
-    try {
-      const p = getPool();
-      await p.query("DELETE FROM tax_invoices WHERE invoice_no = $1", [cleanInvoiceNo]);
-    } catch (err: any) {
-      console.error("[Database] Error deleting invoice from tax_invoices:", err.message);
-    }
+  if (!dbReady) {
+    console.error("[Database] Cannot delete invoice: Database is offline");
+    return false;
   }
-  inMemoryInvoiceStore.delete(cleanInvoiceNo);
-  return true;
+  try {
+    const p = getPool();
+    await p.query("DELETE FROM tax_invoices WHERE invoice_no = $1", [cleanInvoiceNo]);
+    inMemoryInvoiceStore.delete(cleanInvoiceNo);
+    return true;
+  } catch (err: any) {
+    console.error("[Database] Error deleting invoice from tax_invoices:", err.message);
+    return false;
+  }
 }
 
 export async function updateInvoice(

@@ -88,6 +88,13 @@ export async function DELETE(
     const { id } = await params;
     const deleted = await deleteInvoice(id);
 
+    if (!deleted) {
+      return NextResponse.json(
+        { success: false, error: `Failed to delete invoice '${id}'. Database query failed or database is offline.` },
+        { status: 500 }
+      );
+    }
+
     // Synchronize deletion with Google Sheets if webhook is configured
     try {
       await syncDeleteFromGoogleDrive({ id, docType: "invoice" });
@@ -98,7 +105,7 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       message: `Invoice '${id}' successfully deleted`,
-      deleted,
+      deleted: true,
     });
   } catch (error: any) {
     return NextResponse.json(

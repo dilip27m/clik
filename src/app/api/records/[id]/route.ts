@@ -109,6 +109,13 @@ export async function DELETE(
     const docType = req.nextUrl.searchParams.get("docType") || undefined;
     const deleted = await deleteTransitRecord(id, docType);
 
+    if (!deleted) {
+      return NextResponse.json(
+        { success: false, error: `Failed to delete record '${id}'. Database query failed or database is offline.` },
+        { status: 500 }
+      );
+    }
+
     // Synchronize deletion with Google Sheets if webhook is configured
     try {
       const targetDocType = docType?.includes("original") ? "transit_original" : "transit_duplicate";
@@ -120,7 +127,7 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       message: `Record '${id}' successfully deleted`,
-      deleted,
+      deleted: true,
     });
   } catch (error: any) {
     return NextResponse.json(
