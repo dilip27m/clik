@@ -11,9 +11,22 @@ function cleanConnectionString(url?: string): string {
   return url.trim().replace(/^["']|["']$/g, "");
 }
 
-const connectionString =
-  cleanConnectionString(process.env.DATABASE_URL) ||
-  "postgresql://postgres:postgres@localhost:5433/transit_db?schema=public";
+function resolveConnectionString(override?: string): string {
+  if (override) return cleanConnectionString(override);
+  const candidates = [
+    process.env.DATABASE_URL,
+    process.env.NEON_DATABASE_URL,
+    process.env.POSTGRES_URL,
+    process.env.POSTGRES_PRISMA_URL,
+  ];
+  for (const c of candidates) {
+    const clean = cleanConnectionString(c);
+    if (clean) return clean;
+  }
+  return defaultLocalUrl;
+}
+
+const defaultLocalUrl = "postgresql://postgres:postgres@localhost:5433/transit_db?schema=public";
 
 let pool: Pool | null = null;
 let isInitialized = false; // Tables created (DDL ran) — one-time flag
@@ -24,12 +37,10 @@ let lastDbError: string | null = null; // Reason why last connection attempt fai
 const inMemoryTransitStore = new Map<string, TransitRecord>();
 const inMemoryInvoiceStore = new Map<string, InvoiceRecord>();
 
-const defaultLocalUrl = "postgresql://postgres:postgres@localhost:5433/transit_db?schema=public";
 let activeConnString: string | null = null;
 
 export function getPool(overrideConnStr?: string): Pool {
-  const rawTarget = overrideConnStr || process.env.DATABASE_URL || connectionString;
-  const targetConn = cleanConnectionString(rawTarget);
+  const targetConn = resolveConnectionString(overrideConnStr);
   if (!pool || (activeConnString && activeConnString !== targetConn)) {
     if (pool) {
       pool.end().catch(() => {});
@@ -83,8 +94,14 @@ function startKeepAlive() {
 let initPromise: Promise<boolean> | null = null;
 
 export async function initDatabase(): Promise<boolean> {
-  if (!process.env.DATABASE_URL?.trim()) {
-    lastDbError = "DATABASE_URL is not set in environment variables.";
+  const isCloudConfigured = Boolean(
+    process.env.DATABASE_URL?.trim() ||
+    process.env.NEON_DATABASE_URL?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    process.env.POSTGRES_PRISMA_URL?.trim()
+  );
+  if (!isCloudConfigured && process.env.NODE_ENV === "production") {
+    lastDbError = "Database URL is not set in Vercel environment variables.";
   }
 
   // Tables already created — just check if connection is still alive
