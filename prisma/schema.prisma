@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TransitPassDuplicate {
+  stationaryNo         String   @id @map("stationary_no")
+  dispatchDate         String   @map("dispatch_date")
+  mdlNameConsigneeName String   @map("mdl_name_consignee_name")
+  mineralName          String   @map("mineral_name")
+  vehicleNo            String   @map("vehicle_no")
+  dispatchQty          Float?   @map("dispatch_qty")
+  imageUrl             String?  @map("image_url") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([vehicleNo])
+  @@index([dispatchDate])
+  @@map("transit_pass_duplicate")
+}
+
+model TransitPassOriginal {
+  stationaryNo         String   @id @map("stationary_no")
+  dispatchDate         String   @map("dispatch_date")
+  mdlNameConsigneeName String   @map("mdl_name_consignee_name")
+  mineralName          String   @map("mineral_name")
+  vehicleNo            String   @map("vehicle_no")
+  dispatchQty          Float?   @map("dispatch_qty")
+  productionQty        Float?   @map("production_qty")
+  imageUrl             String?  @map("image_url") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([vehicleNo])
+  @@index([dispatchDate])
+  @@map("transit_pass_original")
+}
+
+model TaxInvoice {
+  invoiceNo     String   @id @map("invoice_no")
+  invoiceDate   String   @map("invoice_date")
+  billTo        String   @map("bill_to") @db.Text
+  quantity      Float?   @map("quantity")
+  ratePerUnit   Float?   @map("rate_per_unit")
+  taxableAmount Float?   @map("taxable_amount")
+  cgstAmount    Float?   @map("cgst_amount")
+  sgstAmount    Float?   @map("sgst_amount")
+  totalAmount   Float?   @map("total_amount")
+  imageUrl      String?  @map("image_url") @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([invoiceDate])
+  @@index([billTo])
+  @@map("tax_invoices")
+}
