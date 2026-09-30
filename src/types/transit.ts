@@ -1,4 +1,4 @@
-export type DocumentTypeOption = "transit_duplicate" | "transit_original" | "invoice";
+export type DocumentTypeOption = "transit_duplicate" | "transit_original" | "invoice" | "universal";
 
 // Simplified Transit Record — 6 Core Fields Only (like Tax Invoice's strict 9)
 export interface TransitRecord {

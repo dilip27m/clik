@@ -302,3 +302,146 @@ export async function extractTaxInvoice(
 
   throw new Error("OCR extraction failed. Please ensure the invoice is clear, well-lit, and properly oriented.");
 }
+
+// ────── Universal Document Classifier ──────
+// First classifies the document type, then delegates to the correct extractor.
+const UNIVERSAL_CLASSIFICATION_PROMPT = `
+You are an expert document classifier for the Government of Andhra Pradesh – Department of Mines and Geology.
+
+Look at this image and classify it into ONE of these 3 categories:
+
+1. "transit_duplicate" — Transit Form (Duplicate) / OMMS 2.0 form. Header says "TRANSIT FORM (Duplicate)". Stationary No starts with "DD".
+2. "transit_original" — Form E / Transit Pass (Original). Header says "FORM E" or "TRANSIT PASS (Original)". Stationary No starts with "MDLA".
+3. "invoice" — A Tax Invoice / Commercial Invoice. Contains "Tax Invoice", "Invoice No", "Bill To", "CGST", "SGST", etc.
+
+If the image is NONE of these (random photo, unrelated document, etc.):
+return { "documentType": "unknown", "confidence": 0, "reason": "This image does not appear to be any recognized AP Mines document." }
+
+Return valid JSON:
+{
+  "documentType": "transit_duplicate" | "transit_original" | "invoice" | "unknown",
+  "confidence": number (0-100),
+  "reason": string (brief one-line explanation)
+}
+`;
+
+export type ClassificationResult = {
+  documentType: "transit_duplicate" | "transit_original" | "invoice" | "unknown";
+  confidence: number;
+  reason: string;
+};
+
+export async function classifyDocument(
+  base64Image: string,
+  mimeType: string = "image/jpeg"
+): Promise<ClassificationResult> {
+  const keyPool = getServerKeyPool();
+  if (keyPool.length === 0) {
+    throw new Error("Server configuration error: Gemini API keys not found in .env.");
+  }
+
+  const cleanBase64 = base64Image.replace(/^data:image\/[a-z]+;base64,/, "");
+
+  for (let i = 0; i < keyPool.length; i++) {
+    const currentKey = keyPool[i];
+    const ai = new GoogleGenAI({ apiKey: currentKey });
+
+    for (const modelName of CANDIDATE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: UNIVERSAL_CLASSIFICATION_PROMPT },
+                {
+                  inlineData: {
+                    data: cleanBase64,
+                    mimeType,
+                  },
+                },
+              ],
+            },
+          ],
+        });
+
+        const responseText = response.text || "";
+        const cleanJsonStr = responseText
+          .replace(/```json/gi, "")
+          .replace(/```/g, "")
+          .trim();
+        const parsed = JSON.parse(cleanJsonStr);
+
+        return {
+          documentType: parsed.documentType || "unknown",
+          confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+          reason: parsed.reason || "No reason provided",
+        };
+      } catch (err: any) {
+        console.warn(`[Classifier] Model ${modelName} failed on key index ${i}:`, err.message?.slice(0, 100));
+      }
+    }
+  }
+
+  throw new Error("Document classification failed. Please ensure the image is clear and well-lit.");
+}
+
+// Universal extraction: classify first, then extract with the right extractor
+export async function classifyAndExtract(
+  base64Image: string,
+  mimeType: string = "image/jpeg",
+  existingTransitKeys: string[] = []
+) {
+  // Step 1: Classify
+  const classification = await classifyDocument(base64Image, mimeType);
+
+  if (classification.documentType === "unknown" || classification.confidence < 30) {
+    return {
+      success: false,
+      isWrongDocument: true,
+      detectedType: "unknown" as const,
+      classification,
+      rejectionReason: classification.reason || "Unable to identify this document. Please upload an AP Mines Transit Form or Tax Invoice.",
+    };
+  }
+
+  // Step 2: Extract based on classified type
+  const detectedType = classification.documentType;
+
+  if (detectedType === "invoice") {
+    const result = await extractTaxInvoice(base64Image, mimeType);
+    return {
+      success: !result.isWrongDocument,
+      isWrongDocument: result.isWrongDocument || false,
+      detectedType,
+      classification,
+      rejectionReason: result.rejectionReason,
+      data: result.data,
+      isInvoice: true,
+      source: result.source,
+    };
+  }
+
+  // Transit form (original or duplicate)
+  const result = await extractTransitForm(
+    base64Image,
+    mimeType,
+    existingTransitKeys,
+    detectedType // pass detected type so cross-type validation is skipped
+  );
+
+  return {
+    success: !result.isWrongDocument,
+    isWrongDocument: result.isWrongDocument || false,
+    detectedType,
+    classification,
+    rejectionReason: result.isWrongDocument
+      ? (result as any).rejectionReason
+      : undefined,
+    data: result.data,
+    validation: result.validation,
+    isInvoice: false,
+    source: result.source,
+  };
+}

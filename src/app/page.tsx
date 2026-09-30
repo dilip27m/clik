@@ -34,6 +34,7 @@ import {
   Pencil,
   Crop,
   RotateCw,
+  ScanSearch,
 } from "lucide-react";
 import {
   TransitRecord,
@@ -153,6 +154,13 @@ export default function Home() {
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [showCropperModal, setShowCropperModal] = useState(false);
   const [rawCropImage, setRawCropImage] = useState<string | null>(null);
+
+  // Universal scanner: detected type after AI classification
+  const [detectedUniversalType, setDetectedUniversalType] = useState<{
+    type: "transit_duplicate" | "transit_original" | "invoice" | "unknown";
+    confidence: number;
+    reason: string;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -304,8 +312,54 @@ export default function Home() {
     setSaveStatus({ type: null, message: "" });
     setCurrentTransitRecord(null);
     setCurrentInvoice(null);
+    setDetectedUniversalType(null);
 
     try {
+      // Universal mode: use the classify-then-extract endpoint
+      if (selectedDocType === "universal") {
+        const res = await fetch("/api/extract/universal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ base64, mimeType }),
+        });
+
+        const data = await res.json();
+
+        if (res.status === 422 || data.isWrongDocument) {
+          setDetectedUniversalType(data.classification || { type: "unknown", confidence: 0, reason: data.error || "" });
+          setWrongDocAlert(
+            data.error ||
+              "Unable to identify this document. Please upload a recognized AP Mines form."
+          );
+          return;
+        }
+
+        if (data.success) {
+          // Set the detected type for the badge
+          setDetectedUniversalType({
+            type: data.detectedType,
+            confidence: data.classification?.confidence ?? 95,
+            reason: data.classification?.reason || "",
+          });
+
+          if (data.isInvoice) {
+            setCurrentInvoice({ ...data.data, imageUrl: base64 });
+          } else {
+            setCurrentTransitRecord({
+              ...data.data,
+              docType: data.detectedType,
+              imageUrl: base64,
+            });
+            setValidationReport(data.validation);
+          }
+          setExtractionMeta({ source: data.source });
+        } else {
+          setWrongDocAlert(data.error || "Extraction failed. Please verify the image quality.");
+        }
+        return;
+      }
+
+      // Standard mode: use the specific extractor
       const res = await fetch("/api/extract", {
         method: "POST",
         headers: {
@@ -365,8 +419,13 @@ export default function Home() {
   const handleSaveCurrentRecord = async () => {
     setSaveStatus({ type: null, message: "" });
 
+    // Determine the effective docType for saving (universal uses detected type)
+    const effectiveDocType = selectedDocType === "universal"
+      ? (detectedUniversalType?.type || "transit_duplicate")
+      : selectedDocType;
+
     // 1. Save Invoice
-    if (selectedDocType === "invoice" && currentInvoice) {
+    if ((effectiveDocType === "invoice" || selectedDocType === "invoice") && currentInvoice) {
       try {
         const res = await fetch("/api/invoices", {
           method: "POST",
@@ -405,7 +464,7 @@ export default function Home() {
 
           setSaveStatus({
             type: "success",
-            message: `Tax Invoice ${currentInvoice.invoiceNo} saved successfully!`,
+            message: `Tax Invoice ${currentInvoice.invoiceNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
             googleDriveSynced: driveSynced,
           });
           loadActiveData();
@@ -420,13 +479,17 @@ export default function Home() {
 
     // 2. Save Transit Form
     if (currentTransitRecord) {
+      const transitDocType = selectedDocType === "universal"
+        ? (detectedUniversalType?.type || "transit_duplicate")
+        : (selectedDocType || "transit_duplicate");
+
       try {
         const res = await fetch("/api/records", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...currentTransitRecord,
-            docType: selectedDocType || "transit_duplicate",
+            docType: transitDocType,
           }),
         });
         const data = await res.json();
@@ -448,7 +511,7 @@ export default function Home() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   record: currentTransitRecord,
-                  docType: selectedDocType || "transit_duplicate",
+                  docType: transitDocType,
                   config: driveConfig,
                 }),
               });
@@ -459,9 +522,10 @@ export default function Home() {
             }
           }
 
+          const typeLabel = getDocTitle(transitDocType as DocumentTypeOption);
           setSaveStatus({
             type: "success",
-            message: `${getDocTitle(selectedDocType)} ${currentTransitRecord.stationaryNo} saved successfully!`,
+            message: `${typeLabel} ${currentTransitRecord.stationaryNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
             googleDriveSynced: driveSynced,
           });
           loadActiveData();
@@ -582,6 +646,8 @@ export default function Home() {
         return "Transit Pass (Original)";
       case "invoice":
         return "Tax Invoice";
+      case "universal":
+        return "Universal Scanner";
       default:
         return "Department Form";
     }
@@ -735,8 +801,48 @@ export default function Home() {
             </p>
           </div>
 
-          {/* THE 3 CLEAN OPTIONS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+          {/* THE 4 OPTIONS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+            {/* OPTION 0: Universal Scanner — spans full width on desktop */}
+            <div
+              onClick={() => {
+                setSelectedDocType("universal");
+                setActiveTab("scan");
+                setCurrentTransitRecord(null);
+                setCurrentInvoice(null);
+                setImagePreview(null);
+                setDetectedUniversalType(null);
+                resetFilters();
+              }}
+              className="md:col-span-2 p-5 sm:p-6 rounded-xl border border-violet-800/60 bg-gradient-to-br from-[#0d0a14] to-[#0a0a0a] hover:border-violet-500 transition-all cursor-pointer group flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl relative overflow-hidden"
+            >
+              {/* Subtle gradient glow */}
+              <div className="absolute top-0 right-0 w-40 h-40 bg-violet-600/5 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex items-start sm:items-center gap-4 min-w-0">
+                <div className="h-11 w-11 rounded-lg bg-violet-950 border border-violet-700/60 flex items-center justify-center text-violet-300 group-hover:bg-violet-600 group-hover:text-white transition shrink-0">
+                  <ScanSearch className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-semibold text-base text-white tracking-tight">
+                      Universal Scanner
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-950/80 border border-violet-700/60 text-violet-300 font-semibold uppercase">
+                      AI Auto-Detect
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                    Upload any document — AI will automatically detect whether it&apos;s a Transit Duplicate, Transit Original, or Tax Invoice, then extract and save to the correct form.
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-white group-hover:translate-x-1 transition-transform flex items-center gap-1.5 font-semibold text-xs font-mono whitespace-nowrap shrink-0">
+                Smart Upload <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
+
             {/* OPTION 1: Transit Pass (Duplicate) */}
             <div
               onClick={() => {
@@ -747,7 +853,7 @@ export default function Home() {
                 setImagePreview(null);
                 resetFilters();
               }}
-              className="p-6 rounded-xl border border-neutral-800 bg-[#0a0a0a] hover:border-white transition-all cursor-pointer group flex flex-col justify-between shadow-xl relative overflow-hidden"
+              className="p-5 sm:p-6 rounded-xl border border-neutral-800 bg-[#0a0a0a] hover:border-white transition-all cursor-pointer group flex flex-col justify-between shadow-xl relative overflow-hidden"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -766,7 +872,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
+              <div className="mt-5 pt-4 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
                 <span className="text-neutral-500">
                   {overallStats.duplicateCount} Records in Log
                 </span>
@@ -786,7 +892,7 @@ export default function Home() {
                 setImagePreview(null);
                 resetFilters();
               }}
-              className="p-6 rounded-xl border border-neutral-800 bg-[#0a0a0a] hover:border-white transition-all cursor-pointer group flex flex-col justify-between shadow-xl relative overflow-hidden"
+              className="p-5 sm:p-6 rounded-xl border border-neutral-800 bg-[#0a0a0a] hover:border-white transition-all cursor-pointer group flex flex-col justify-between shadow-xl relative overflow-hidden"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -805,7 +911,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
+              <div className="mt-5 pt-4 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
                 <span className="text-neutral-500">
                   {overallStats.originalCount} Records in Log
                 </span>
@@ -825,7 +931,7 @@ export default function Home() {
                 setImagePreview(null);
                 resetFilters();
               }}
-              className="p-6 rounded-xl border border-neutral-800 bg-[#0a0a0a] hover:border-white transition-all cursor-pointer group flex flex-col justify-between shadow-xl relative overflow-hidden"
+              className="md:col-span-2 p-5 sm:p-6 rounded-xl border border-neutral-800 bg-[#0a0a0a] hover:border-white transition-all cursor-pointer group flex flex-col justify-between shadow-xl relative overflow-hidden"
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -844,7 +950,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
+              <div className="mt-5 pt-4 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
                 <span className="text-neutral-500">
                   {overallStats.invoiceCount} Records in Log
                 </span>
@@ -860,47 +966,60 @@ export default function Home() {
         <div className="flex-1 flex flex-col">
           {/* Top Bar with Back Arrow and Tabs */}
           <div className="border-b border-[#18181b] bg-[#0a0a0a]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <button
-                  onClick={() => setSelectedDocType(null)}
-                  className="px-2.5 py-1 text-xs font-mono text-neutral-400 hover:text-white bg-neutral-900 hover:bg-neutral-800 rounded border border-neutral-800 transition flex items-center gap-1.5"
+                  onClick={() => { setSelectedDocType(null); setDetectedUniversalType(null); }}
+                  className="px-2 sm:px-2.5 py-1 text-xs font-mono text-neutral-400 hover:text-white bg-neutral-900 hover:bg-neutral-800 rounded border border-neutral-800 transition flex items-center gap-1 sm:gap-1.5 shrink-0"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
-                  All Forms
+                  <span className="hidden sm:inline">All Forms</span>
+                  <span className="sm:hidden">Back</span>
                 </button>
-                <div className="h-4 w-px bg-neutral-800"></div>
-                <span className="font-semibold text-sm text-white">
+                <div className="h-4 w-px bg-neutral-800 shrink-0"></div>
+                <span className="font-semibold text-xs sm:text-sm text-white truncate">
                   {getDocTitle(selectedDocType)}
                 </span>
+                {/* Universal detection badge */}
+                {selectedDocType === "universal" && detectedUniversalType && detectedUniversalType.type !== "unknown" && (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-violet-700/60 bg-violet-950/40 text-[9px] sm:text-[10px] font-mono text-violet-300 shrink-0">
+                    <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse"></span>
+                    <span>Detected: {getDocTitle(detectedUniversalType.type as DocumentTypeOption)}</span>
+                    <span className="text-violet-500">({detectedUniversalType.confidence}%)</span>
+                  </div>
+                )}
               </div>
 
-              {/* Sub-tabs */}
+              {/* Sub-tabs: hide "Master Log" for universal since it doesn't have its own */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setActiveTab("scan")}
-                  className={`px-3.5 py-1.5 text-xs font-medium rounded transition flex items-center gap-1.5 ${
+                  className={`px-2.5 sm:px-3.5 py-1.5 text-xs font-medium rounded transition flex items-center gap-1.5 ${
                     activeTab === "scan"
                       ? "bg-white text-black font-semibold shadow-sm"
                       : "text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800"
                   }`}
                 >
                   <Camera className="h-3.5 w-3.5" />
-                  Upload Image & Verify
+                  <span className="hidden sm:inline">Upload Image & Verify</span>
+                  <span className="sm:hidden">Upload</span>
                 </button>
-                <button
-                  onClick={() => setActiveTab("records")}
-                  className={`px-3.5 py-1.5 text-xs font-medium rounded transition flex items-center gap-1.5 ${
-                    activeTab === "records"
-                      ? "bg-white text-black font-semibold shadow-sm"
-                      : "text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800"
-                  }`}
-                >
-                  <Database className="h-3.5 w-3.5" />
-                  Master Log (
-                  {selectedDocType === "invoice" ? invoices.length : transitRecords.length}
-                  )
-                </button>
+                {selectedDocType !== "universal" && (
+                  <button
+                    onClick={() => setActiveTab("records")}
+                    className={`px-2.5 sm:px-3.5 py-1.5 text-xs font-medium rounded transition flex items-center gap-1.5 ${
+                      activeTab === "records"
+                        ? "bg-white text-black font-semibold shadow-sm"
+                        : "text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800"
+                    }`}
+                  >
+                    <Database className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Master Log (</span>
+                    <span className="sm:hidden">(</span>
+                    {selectedDocType === "invoice" ? invoices.length : transitRecords.length}
+                    )
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -931,7 +1050,7 @@ export default function Home() {
 
                 {/* Upload Image Section */}
                 {!currentTransitRecord && !currentInvoice && (
-                  <div className="border border-dashed border-neutral-800 rounded-xl p-8 sm:p-14 text-center bg-[#09090b] relative overflow-hidden transition hover:border-neutral-700">
+                  <div className={`border border-dashed rounded-xl p-6 sm:p-14 text-center relative overflow-hidden transition ${selectedDocType === "universal" ? "border-violet-800/60 bg-gradient-to-br from-[#0d0a14] to-[#09090b] hover:border-violet-600" : "border-neutral-800 bg-[#09090b] hover:border-neutral-700"}`}>
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -955,9 +1074,11 @@ export default function Home() {
                     />
 
                     <div className="max-w-md mx-auto flex flex-col items-center">
-                      <div className="h-14 w-14 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white mb-4 shadow-sm">
+                      <div className={`h-14 w-14 rounded-full border flex items-center justify-center text-white mb-4 shadow-sm ${selectedDocType === "universal" ? "bg-violet-950 border-violet-700/60" : "bg-neutral-900 border-neutral-800"}`}>
                         {isProcessing ? (
-                          <RefreshCw className="h-6 w-6 animate-spin text-neutral-400" />
+                          <RefreshCw className={`h-6 w-6 animate-spin ${selectedDocType === "universal" ? "text-violet-400" : "text-neutral-400"}`} />
+                        ) : selectedDocType === "universal" ? (
+                          <ScanSearch className="h-6 w-6 text-violet-300" />
                         ) : (
                           <Upload className="h-6 w-6 text-neutral-300" />
                         )}
@@ -965,13 +1086,13 @@ export default function Home() {
 
                       <h3 className="text-base font-semibold text-white tracking-tight">
                         {isProcessing
-                          ? "Extracting Document Fields..."
-                          : `Upload Image for ${getDocTitle(selectedDocType)}`}
+                          ? (selectedDocType === "universal" ? "AI is Classifying & Extracting..." : "Extracting Document Fields...")
+                          : selectedDocType === "universal" ? "Upload Any Document" : `Upload Image for ${getDocTitle(selectedDocType)}`}
                       </h3>
                       <p className="text-xs text-neutral-400 mt-1.5 max-w-sm">
                         {isProcessing
-                          ? "Vision model is reading key fields and validating document layout..."
-                          : "Upload a photo or camera capture (JPEG / PNG)."}
+                          ? (selectedDocType === "universal" ? "AI is identifying the document type and extracting fields automatically..." : "Vision model is reading key fields and validating document layout...")
+                          : selectedDocType === "universal" ? "Upload any Transit Form or Invoice — AI will detect the type and extract automatically." : "Upload a photo or camera capture (JPEG / PNG)."}
                       </p>
 
                       <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
@@ -1031,6 +1152,7 @@ export default function Home() {
                           setCurrentTransitRecord(null);
                           setCurrentInvoice(null);
                           setImagePreview(null);
+                          setDetectedUniversalType(null);
                           setSaveStatus({ type: null, message: "" });
                         }}
                         className="underline text-emerald-200 hover:text-white font-medium"
@@ -1042,7 +1164,7 @@ export default function Home() {
                 )}
 
                 {/* 1. REVIEW SCREEN: TAX INVOICE (STRICT 9 FIELDS) */}
-                {selectedDocType === "invoice" && currentInvoice && (
+                {(selectedDocType === "invoice" || (selectedDocType === "universal" && detectedUniversalType?.type === "invoice")) && currentInvoice && (
                   <div className="space-y-4">
                     {/* Primary Key Action Bar */}
                     <div className="p-3.5 rounded-lg border border-neutral-800 bg-[#0d0d0d] flex flex-wrap items-center justify-between gap-3">
@@ -1314,7 +1436,7 @@ export default function Home() {
                 )}
 
                 {/* 2. REVIEW SCREEN: TRANSIT PASS (ORIGINAL OR DUPLICATE) */}
-                {selectedDocType !== "invoice" && currentTransitRecord && (
+                {selectedDocType !== "invoice" && !(selectedDocType === "universal" && detectedUniversalType?.type === "invoice") && currentTransitRecord && (
                   <div className="space-y-4">
                     {/* Action Bar */}
                     <div className="p-3.5 rounded-lg border border-neutral-800 bg-[#0d0d0d] flex flex-wrap items-center justify-between gap-3">
@@ -1334,7 +1456,7 @@ export default function Home() {
                             </span>
                           </div>
                           <p className="text-[11px] text-neutral-500 mt-0.5 font-mono">
-                            {getDocTitle(selectedDocType)}
+                            {selectedDocType === "universal" ? getDocTitle(detectedUniversalType?.type as DocumentTypeOption) : getDocTitle(selectedDocType)}
                           </p>
                         </div>
                       </div>
