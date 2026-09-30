@@ -11,7 +11,8 @@ const connectionString =
   "postgresql://postgres:postgres@localhost:5433/transit_db?schema=public";
 
 let pool: Pool | null = null;
-let isInitialized = false;
+let isInitialized = false; // Tables created (DDL ran) — one-time flag
+let isDbHealthy = false;   // Live connection health — updated by keep-alive ping
 
 // Fallback in-memory stores
 const inMemoryTransitStore = new Map<string, TransitRecord>();
@@ -42,12 +43,14 @@ export function getPool(overrideConnStr?: string): Pool {
 
     pool.on("error", (err) => {
       console.error("[PostgreSQL Pool Error]:", err.message);
+      isDbHealthy = false; // Mark unhealthy on pool-level errors
     });
   }
   return pool;
 }
 
 // Keep-alive timer: Pings Neon PostgreSQL every 4 minutes to prevent it from going to sleep
+// Also serves as a live health monitor — updates isDbHealthy on every ping
 let keepAliveTimer: NodeJS.Timeout | null = null;
 function startKeepAlive() {
   if (keepAliveTimer) return;
@@ -55,8 +58,13 @@ function startKeepAlive() {
     try {
       const p = getPool();
       await p.query("SELECT 1");
+      if (!isDbHealthy) {
+        console.log("[Neon Keep-Alive] Database connection restored.");
+      }
+      isDbHealthy = true;
     } catch (e: any) {
       console.warn("[Neon Keep-Alive Ping Failed]:", e.message);
+      isDbHealthy = false;
     }
   }, 4 * 60 * 1000); // 4 minutes
   if (keepAliveTimer.unref) keepAliveTimer.unref();
@@ -65,7 +73,24 @@ function startKeepAlive() {
 let initPromise: Promise<boolean> | null = null;
 
 export async function initDatabase(): Promise<boolean> {
-  if (isInitialized) return true;
+  // Tables already created — just check if connection is still alive
+  if (isInitialized) {
+    if (isDbHealthy) return true;
+
+    // DB was marked unhealthy (by keep-alive or pool error) — try a quick reconnect
+    try {
+      const p = getPool();
+      await p.query("SELECT 1");
+      isDbHealthy = true;
+      console.log("[Database] Reconnected to PostgreSQL after temporary outage.");
+      return true;
+    } catch (reconnectErr: any) {
+      console.warn("[Database] Reconnect check failed:", reconnectErr.message);
+      isDbHealthy = false;
+      return false;
+    }
+  }
+
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
@@ -83,10 +108,12 @@ export async function initDatabase(): Promise<boolean> {
         } catch (localErr: any) {
           console.warn(`[Database] Local fallback also failed (${localErr.message}). Falling back to in-memory store.`);
           initPromise = null;
+          isDbHealthy = false;
           return false;
         }
       } else {
         initPromise = null;
+        isDbHealthy = false;
         return false;
       }
     }
@@ -178,6 +205,7 @@ export async function initDatabase(): Promise<boolean> {
     }
 
     isInitialized = true;
+    isDbHealthy = true;
     startKeepAlive();
     console.log(
       "[Database] Initialized tables: transit_pass_duplicate, transit_pass_original, tax_invoices. Neon keep-alive active."
@@ -189,6 +217,7 @@ export async function initDatabase(): Promise<boolean> {
         err.message
       );
       initPromise = null;
+      isDbHealthy = false;
       return false;
     }
   })();
