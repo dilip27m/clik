@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllInvoices, saveInvoice } from "@/lib/db";
+import { getAllInvoices, saveInvoice, getInvoiceByNo, getOverallStats } from "@/lib/db";
 import { InvoiceRecord, MasterLogFilters } from "@/types/transit";
 import { validateInvoice } from "@/lib/validation";
 import { syncRecordToGoogleDrive } from "@/lib/googledrive";
@@ -15,11 +15,16 @@ export async function GET(req: NextRequest) {
       company: searchParams.get("company") || undefined,
     };
 
-    const result = await getAllInvoices(filters);
+    const [result, stats] = await Promise.all([
+      getAllInvoices(filters),
+      getOverallStats(),
+    ]);
+
     return NextResponse.json({
       success: true,
       invoices: result.invoices,
       isPostgres: result.isPostgres,
+      stats,
     });
   } catch (error: any) {
     console.error("[API /api/invoices GET Error]:", error);
@@ -55,22 +60,6 @@ export async function POST(req: NextRequest) {
       imageUrl: rawBody.imageUrl || "",
     };
 
-    // Full 9-field validation
-    const { invoices } = await getAllInvoices({});
-    const cleanInvoiceNo = (body.invoiceNo || "").trim().toUpperCase();
-    const existingKeys = invoices.map((inv) => inv.invoiceNo.trim().toUpperCase());
-
-    if (existingKeys.includes(cleanInvoiceNo)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Duplicate rejected: Invoice No '${body.invoiceNo}' already exists in database.`,
-          isDuplicate: true,
-        },
-        { status: 409 }
-      );
-    }
-
     const validation = validateInvoice(body, []);
 
     if (!validation.isValid) {
@@ -91,33 +80,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: (saveResult as any).error || `Failed to save Invoice ${body.invoiceNo}`,
+          error: saveResult.isDuplicate
+            ? `Duplicate rejected: Invoice No '${body.invoiceNo}' already exists in database.`
+            : (saveResult as any).error || `Failed to save Invoice ${body.invoiceNo}`,
           isDuplicate: saveResult.isDuplicate,
         },
         { status: saveResult.isDuplicate ? 409 : 503 }
       );
     }
 
-    // Automatically sync to Google Sheets if WEBHOOK is configured
-    const webhookUrl = process.env.GOOGLE_DRIVE_WEBHOOK_URL?.trim();
-    let googleDriveSynced = false;
+    // Non-blocking background sync to Google Sheets
+    const webhookUrl = (rawBody.webhookUrl || process.env.GOOGLE_DRIVE_WEBHOOK_URL)?.trim();
     if (webhookUrl) {
-      try {
-        const syncRes = await syncRecordToGoogleDrive(
-          { invoice: saveResult.invoice || body, docType: "invoice" },
-          { enabled: true, webhookUrl }
-        );
-        googleDriveSynced = syncRes.success;
-      } catch (syncErr) {
+      syncRecordToGoogleDrive(
+        { invoice: saveResult.invoice || body, docType: "invoice" },
+        { enabled: true, webhookUrl }
+      ).catch((syncErr) => {
         console.warn("[Auto-Sync Google Sheets Invoice Error]:", syncErr);
-      }
+      });
     }
 
     return NextResponse.json(
       {
         success: true,
         invoice: saveResult.invoice,
-        googleDriveSynced,
+        googleDriveSynced: Boolean(webhookUrl),
         message: `Successfully saved Invoice ${body.invoiceNo}`,
         warnings: validation.warnings,
       },

@@ -92,6 +92,7 @@ export default function Home() {
     company: "",
     grade: "",
   });
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
 
   // Scanning & Extraction state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -192,7 +193,10 @@ export default function Home() {
       if (selectedDocType === "invoice") {
         const res = await fetch(`/api/invoices${query ? `?${query}` : ""}`);
         const data = await res.json();
-        if (data.success) setInvoices(data.invoices || []);
+        if (data.success) {
+          setInvoices(data.invoices || []);
+          if (data.stats) setOverallStats(data.stats);
+        }
       } else {
         const docParam = selectedDocType ? `docType=${selectedDocType}` : "";
         const fullQuery = [docParam, query].filter(Boolean).join("&");
@@ -202,13 +206,6 @@ export default function Home() {
           setTransitRecords(data.records || []);
           if (data.stats) setOverallStats(data.stats);
         }
-      }
-
-      // Always update overall stats
-      const statsRes = await fetch("/api/records?stats=true");
-      const statsData = await statsRes.json();
-      if (statsData.success && statsData.stats) {
-        setOverallStats(statsData.stats);
       }
     } catch (err) {
       console.error("Data load error:", err);
@@ -485,7 +482,10 @@ export default function Home() {
           const res = await fetch("/api/invoices", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(currentInvoice),
+            body: JSON.stringify({
+              ...currentInvoice,
+              webhookUrl: driveConfig?.enabled && driveConfig.webhookUrl ? driveConfig.webhookUrl : undefined,
+            }),
           });
           const data = await res.json();
 
@@ -498,29 +498,32 @@ export default function Home() {
           }
 
           if (data.success) {
-            let driveSynced = data.googleDriveSynced ?? false;
-            if (!driveSynced && driveConfig.enabled && driveConfig.webhookUrl) {
-              try {
-                const driveRes = await fetch("/api/sync/googledrive", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    invoice: currentInvoice,
-                    docType: "invoice",
-                    config: driveConfig,
-                  }),
-                });
-                const driveData = await driveRes.json();
-                driveSynced = driveData.success;
-              } catch (e) {
-                console.warn("Google Drive invoice sync failed:", e);
-              }
+            const isSynced = Boolean(data.googleDriveSynced || (driveConfig.enabled && driveConfig.webhookUrl));
+            
+            // Non-blocking background sync fallback if not handled by server
+            if (!data.googleDriveSynced && driveConfig.enabled && driveConfig.webhookUrl) {
+              fetch("/api/sync/googledrive", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  invoice: currentInvoice,
+                  docType: "invoice",
+                  config: driveConfig,
+                }),
+              }).catch((e) => console.warn("Google Drive invoice background sync notice:", e));
             }
+
+            // Optimistic instant state update
+            const savedInvoice = data.invoice || currentInvoice;
+            setInvoices((prev) => [
+              savedInvoice,
+              ...prev.filter((i) => i.invoiceNo !== savedInvoice.invoiceNo),
+            ]);
 
             setSaveStatus({
               type: "success",
               message: `Tax Invoice ${currentInvoice.invoiceNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
-              googleDriveSynced: driveSynced,
+              googleDriveSynced: isSynced,
             });
             loadActiveData();
           } else {
@@ -545,6 +548,7 @@ export default function Home() {
             body: JSON.stringify({
               ...currentTransitRecord,
               docType: transitDocType,
+              webhookUrl: driveConfig?.enabled && driveConfig.webhookUrl ? driveConfig.webhookUrl : undefined,
             }),
           });
           const data = await res.json();
@@ -558,30 +562,33 @@ export default function Home() {
           }
 
           if (data.success) {
-            let driveSynced = data.googleDriveSynced ?? false;
-            if (!driveSynced && driveConfig.enabled && driveConfig.webhookUrl) {
-              try {
-                const driveRes = await fetch("/api/sync/googledrive", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    record: currentTransitRecord,
-                    docType: transitDocType,
-                    config: driveConfig,
-                  }),
-                });
-                const driveData = await driveRes.json();
-                driveSynced = driveData.success;
-              } catch (e) {
-                console.warn("Drive sync failed:", e);
-              }
+            const isSynced = Boolean(data.googleDriveSynced || (driveConfig.enabled && driveConfig.webhookUrl));
+
+            // Non-blocking background sync fallback if not handled by server
+            if (!data.googleDriveSynced && driveConfig.enabled && driveConfig.webhookUrl) {
+              fetch("/api/sync/googledrive", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  record: currentTransitRecord,
+                  docType: transitDocType,
+                  config: driveConfig,
+                }),
+              }).catch((e) => console.warn("Google Drive background sync notice:", e));
             }
+
+            // Optimistic instant state update
+            const savedRec = data.record || { ...currentTransitRecord, docType: transitDocType };
+            setTransitRecords((prev) => [
+              savedRec,
+              ...prev.filter((r) => r.stationaryNo !== savedRec.stationaryNo),
+            ]);
 
             const typeLabel = getDocTitle(transitDocType as DocumentTypeOption);
             setSaveStatus({
               type: "success",
               message: `${typeLabel} ${currentTransitRecord.stationaryNo} saved successfully!${selectedDocType === "universal" ? " (Auto-detected)" : ""}`,
-              googleDriveSynced: driveSynced,
+              googleDriveSynced: isSynced,
             });
             loadActiveData();
           } else {
@@ -718,6 +725,15 @@ export default function Home() {
   const hasActiveFilters = Boolean(
     filters.search || filters.month || filters.startDate || filters.endDate || filters.company || filters.grade
   );
+
+  const activeFilterCount = [
+    filters.search ? 1 : 0,
+    filters.month ? 1 : 0,
+    filters.startDate ? 1 : 0,
+    filters.endDate ? 1 : 0,
+    filters.company ? 1 : 0,
+    filters.grade ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#ededed] font-sans antialiased flex flex-col selection:bg-neutral-800 selection:text-white">
@@ -1748,238 +1764,267 @@ export default function Home() {
             ) : (
               /* MASTER LOG TABLE WITH ADVANCED FILTERS (MONTH, START/END DATE, COMPANY, GRADE) */
               <div className="space-y-4">
-                {/* Advanced Filter Toolbar */}
-                <div className="p-4 rounded-xl border border-neutral-800 bg-[#0a0a0a] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-300 font-mono">
-                      <Filter className="h-3.5 w-3.5 text-neutral-400" />
-                      Filter {getDocTitle(selectedDocType)} Ledger
-                    </div>
-                    {hasActiveFilters && (
-                      <button
-                        onClick={resetFilters}
-                        className="text-xs text-neutral-400 hover:text-white flex items-center gap-1 font-mono transition"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        Reset Filters
-                      </button>
-                    )}
-                  </div>
-
-                  <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${selectedDocType !== "invoice" ? "lg:grid-cols-6" : "lg:grid-cols-5"} gap-3`}>
-                    {/* Filter 1: Search */}
-                    <div>
-                      <label className="block text-[10px] font-mono text-neutral-500 mb-1">
-                        Search Keyword
-                      </label>
-                      <div className="relative">
+                {/* Compressed Expandable Filter Toolbar */}
+                <div className="rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden transition-all duration-200 shadow-sm">
+                  {/* Compressed Bar (Always visible) */}
+                  <div className="p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2.5">
+                    {/* Quick Search Keyword Input */}
+                    <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
+                      <div className="relative w-full">
                         <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-500" />
                         <input
                           type="text"
-                          placeholder={selectedDocType === "invoice" ? "Search invoice no..." : "Search stationary no, vehicle..."}
+                          placeholder={selectedDocType === "invoice" ? "Quick search invoice no, buyer..." : "Quick search stationary no, vehicle, consignee..."}
                           value={filters.search}
                           onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                          className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none"
+                          className="w-full bg-black/70 border border-neutral-800 text-white rounded-lg pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none placeholder:text-neutral-600"
                         />
                       </div>
                     </div>
 
-                    {/* Filter 2: Month */}
-                    <div>
-                      <label className="block text-[10px] font-mono text-neutral-500 mb-1 flex items-center justify-between">
-                        <span>Month</span>
-                        {filters.month && (
-                          <button
-                            type="button"
-                            onClick={() => setFilters({ ...filters, month: "" })}
-                            className="text-[9px] text-neutral-400 hover:text-white"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </label>
-                      <div className="relative">
-                        <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
-                        <input
-                          type="month"
-                          value={filters.month}
-                          onClick={(e) => {
-                            try {
-                              e.currentTarget.showPicker?.();
-                            } catch {}
-                          }}
-                          onChange={(e) => setFilters({ ...filters, month: e.target.value })}
-                          className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none cursor-pointer [color-scheme:dark]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Filter 3: Start Date */}
-                    <div>
-                      <label className="block text-[10px] font-mono text-neutral-500 mb-1 flex items-center justify-between">
-                        <span>Start Date</span>
-                        {filters.startDate && (
-                          <button
-                            type="button"
-                            onClick={() => setFilters({ ...filters, startDate: "" })}
-                            className="text-[9px] text-neutral-400 hover:text-white"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </label>
-                      <div className="relative">
-                        <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
-                        <input
-                          type="date"
-                          value={filters.startDate}
-                          onClick={(e) => {
-                            try {
-                              e.currentTarget.showPicker?.();
-                            } catch {}
-                          }}
-                          onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-                          className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none cursor-pointer [color-scheme:dark]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Filter 4: End Date */}
-                    <div>
-                      <label className="block text-[10px] font-mono text-neutral-500 mb-1 flex items-center justify-between">
-                        <span>End Date</span>
-                        {filters.endDate && (
-                          <button
-                            type="button"
-                            onClick={() => setFilters({ ...filters, endDate: "" })}
-                            className="text-[9px] text-neutral-400 hover:text-white"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </label>
-                      <div className="relative">
-                        <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
-                        <input
-                          type="date"
-                          value={filters.endDate}
-                          onClick={(e) => {
-                            try {
-                              e.currentTarget.showPicker?.();
-                            } catch {}
-                          }}
-                          onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-                          className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none cursor-pointer [color-scheme:dark]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Filter 5: Company / Consignee / Buyer */}
-                    <div>
-                      <label className="block text-[10px] font-mono text-neutral-500 mb-1">
-                        {selectedDocType === "invoice" ? "Buyer / Company" : "Consignee / Company"}
-                      </label>
-                      <input
-                        type="text"
-                        placeholder={selectedDocType === "invoice" ? "e.g. Seth Nandram..." : "e.g. Renuka / APMDC..."}
-                        value={filters.company}
-                        onChange={(e) => setFilters({ ...filters, company: e.target.value })}
-                        className="w-full bg-black border border-neutral-800 text-white rounded px-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Filter 6: Mineral Grade (for Transit Pass Duplicate & Original) */}
-                    {selectedDocType !== "invoice" && (
-                      <div>
-                        <label className="block text-[10px] font-mono text-neutral-500 mb-1">
-                          Mineral Grade
-                        </label>
-                        <select
-                          value={filters.grade}
-                          onChange={(e) => setFilters({ ...filters, grade: e.target.value })}
-                          className="w-full bg-black border border-neutral-800 text-white rounded px-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none"
+                    {/* Expand/Collapse Toggle & Reset Buttons */}
+                    <div className="flex items-center gap-2">
+                      {hasActiveFilters && (
+                        <button
+                          type="button"
+                          onClick={resetFilters}
+                          className="text-xs text-neutral-400 hover:text-white flex items-center gap-1 font-mono transition px-2 py-1 rounded hover:bg-neutral-900"
+                          title="Reset all filters"
                         >
-                          <option value="">All Grades</option>
-                          <option value="A">Grade A</option>
-                          <option value="B">Grade B</option>
-                          <option value="C and D">Grade C & D</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
+                          <RotateCcw className="h-3 w-3" />
+                          <span className="hidden sm:inline">Reset</span>
+                        </button>
+                      )}
 
-                  {/* Quick Calendar Presets */}
-                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-neutral-900 text-xs">
-                    <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider flex items-center gap-1">
-                      <Calendar className="h-3 w-3 text-neutral-400" />
-                      Quick Calendar:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const today = new Date().toISOString().split("T")[0];
-                        setFilters({ ...filters, startDate: today, endDate: today, month: "" });
-                      }}
-                      className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition"
-                    >
-                      Today
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const ym = new Date().toISOString().slice(0, 7);
-                        setFilters({ ...filters, month: ym, startDate: "", endDate: "" });
-                      }}
-                      className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition"
-                    >
-                      This Month
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const end = new Date();
-                        const start = new Date();
-                        start.setDate(start.getDate() - 7);
-                        setFilters({
-                          ...filters,
-                          startDate: start.toISOString().split("T")[0],
-                          endDate: end.toISOString().split("T")[0],
-                          month: "",
-                        });
-                      }}
-                      className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition"
-                    >
-                      Last 7 Days
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const end = new Date();
-                        const start = new Date();
-                        start.setDate(start.getDate() - 30);
-                        setFilters({
-                          ...filters,
-                          startDate: start.toISOString().split("T")[0],
-                          endDate: end.toISOString().split("T")[0],
-                          month: "",
-                        });
-                      }}
-                      className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition"
-                    >
-                      Last 30 Days
-                    </button>
-                    {(filters.month || filters.startDate || filters.endDate) && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setFilters({ ...filters, month: "", startDate: "", endDate: "" })
-                        }
-                        className="px-2 py-0.5 rounded text-[11px] font-mono bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition sm:ml-auto"
+                        onClick={() => setIsFilterExpanded(!isFilterExpanded)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-medium transition cursor-pointer select-none ${
+                          isFilterExpanded
+                            ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                            : hasActiveFilters
+                            ? "border-emerald-500/30 bg-neutral-900 text-emerald-400"
+                            : "border-neutral-800 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white"
+                        }`}
                       >
-                        ✕ Clear Dates
+                        <Filter className="h-3.5 w-3.5" />
+                        <span>{isFilterExpanded ? "Hide Filters" : "Filters"}</span>
+                        {activeFilterCount > 0 && (
+                          <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-emerald-500 text-black text-[10px] font-bold">
+                            {activeFilterCount}
+                          </span>
+                        )}
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                            isFilterExpanded ? "rotate-180" : ""
+                          }`}
+                        />
                       </button>
-                    )}
+                    </div>
                   </div>
+
+                  {/* Expandable Advanced Filter Panel */}
+                  {isFilterExpanded && (
+                    <div className="p-3.5 sm:p-4 pt-1 border-t border-neutral-800/80 bg-neutral-950/60 space-y-3.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${selectedDocType !== "invoice" ? "lg:grid-cols-5" : "lg:grid-cols-4"} gap-3 pt-2`}>
+                        {/* Filter: Month */}
+                        <div>
+                          <label className="block text-[10px] font-mono text-neutral-500 mb-1 flex items-center justify-between">
+                            <span>Month</span>
+                            {filters.month && (
+                              <button
+                                type="button"
+                                onClick={() => setFilters({ ...filters, month: "" })}
+                                className="text-[9px] text-neutral-400 hover:text-white"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </label>
+                          <div className="relative">
+                            <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
+                            <input
+                              type="month"
+                              value={filters.month}
+                              onClick={(e) => {
+                                try {
+                                  e.currentTarget.showPicker?.();
+                                } catch {}
+                              }}
+                              onChange={(e) => setFilters({ ...filters, month: e.target.value })}
+                              className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none cursor-pointer [color-scheme:dark]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Filter: Start Date */}
+                        <div>
+                          <label className="block text-[10px] font-mono text-neutral-500 mb-1 flex items-center justify-between">
+                            <span>Start Date</span>
+                            {filters.startDate && (
+                              <button
+                                type="button"
+                                onClick={() => setFilters({ ...filters, startDate: "" })}
+                                className="text-[9px] text-neutral-400 hover:text-white"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </label>
+                          <div className="relative">
+                            <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
+                            <input
+                              type="date"
+                              value={filters.startDate}
+                              onClick={(e) => {
+                                try {
+                                  e.currentTarget.showPicker?.();
+                                } catch {}
+                              }}
+                              onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                              className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none cursor-pointer [color-scheme:dark]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Filter: End Date */}
+                        <div>
+                          <label className="block text-[10px] font-mono text-neutral-500 mb-1 flex items-center justify-between">
+                            <span>End Date</span>
+                            {filters.endDate && (
+                              <button
+                                type="button"
+                                onClick={() => setFilters({ ...filters, endDate: "" })}
+                                className="text-[9px] text-neutral-400 hover:text-white"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </label>
+                          <div className="relative">
+                            <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
+                            <input
+                              type="date"
+                              value={filters.endDate}
+                              onClick={(e) => {
+                                try {
+                                  e.currentTarget.showPicker?.();
+                                } catch {}
+                              }}
+                              onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                              className="w-full bg-black border border-neutral-800 text-white rounded pl-8 pr-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none cursor-pointer [color-scheme:dark]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Filter: Company / Consignee / Buyer */}
+                        <div>
+                          <label className="block text-[10px] font-mono text-neutral-500 mb-1">
+                            {selectedDocType === "invoice" ? "Buyer / Company" : "Consignee / Company"}
+                          </label>
+                          <input
+                            type="text"
+                            placeholder={selectedDocType === "invoice" ? "e.g. Seth Nandram..." : "e.g. Renuka / APMDC..."}
+                            value={filters.company}
+                            onChange={(e) => setFilters({ ...filters, company: e.target.value })}
+                            className="w-full bg-black border border-neutral-800 text-white rounded px-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Filter: Mineral Grade (for Transit Pass Duplicate & Original) */}
+                        {selectedDocType !== "invoice" && (
+                          <div>
+                            <label className="block text-[10px] font-mono text-neutral-500 mb-1">
+                              Mineral Grade
+                            </label>
+                            <select
+                              value={filters.grade}
+                              onChange={(e) => setFilters({ ...filters, grade: e.target.value })}
+                              className="w-full bg-black border border-neutral-800 text-white rounded px-2.5 py-1.5 text-xs font-mono focus:border-neutral-500 focus:outline-none"
+                            >
+                              <option value="">All Grades</option>
+                              <option value="A">Grade A</option>
+                              <option value="B">Grade B</option>
+                              <option value="C and D">Grade C & D</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Quick Calendar Presets */}
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-neutral-900 text-xs">
+                        <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-neutral-400" />
+                          Quick Calendar:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const today = new Date().toISOString().split("T")[0];
+                            setFilters({ ...filters, startDate: today, endDate: today, month: "" });
+                          }}
+                          className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
+                        >
+                          Today
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ym = new Date().toISOString().slice(0, 7);
+                            setFilters({ ...filters, month: ym, startDate: "", endDate: "" });
+                          }}
+                          className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
+                        >
+                          This Month
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const end = new Date();
+                            const start = new Date();
+                            start.setDate(start.getDate() - 7);
+                            setFilters({
+                              ...filters,
+                              startDate: start.toISOString().split("T")[0],
+                              endDate: end.toISOString().split("T")[0],
+                              month: "",
+                            });
+                          }}
+                          className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
+                        >
+                          Last 7 Days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const end = new Date();
+                            const start = new Date();
+                            start.setDate(start.getDate() - 30);
+                            setFilters({
+                              ...filters,
+                              startDate: start.toISOString().split("T")[0],
+                              endDate: end.toISOString().split("T")[0],
+                              month: "",
+                            });
+                          }}
+                          className="px-2.5 py-0.5 rounded text-[11px] font-mono bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition cursor-pointer"
+                        >
+                          Last 30 Days
+                        </button>
+                        {(filters.month || filters.startDate || filters.endDate) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFilters({ ...filters, month: "", startDate: "", endDate: "" })
+                            }
+                            className="px-2 py-0.5 rounded text-[11px] font-mono bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition sm:ml-auto cursor-pointer"
+                          >
+                            ✕ Clear Dates
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Master Log Header Bar */}

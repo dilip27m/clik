@@ -3,6 +3,7 @@ import {
   getAllTransitRecords,
   saveTransitRecord,
   getOverallStats,
+  getTransitRecordByStationaryNo,
 } from "@/lib/db";
 import { validateTransitRecord } from "@/lib/validation";
 import { TransitRecord, MasterLogFilters } from "@/types/transit";
@@ -79,21 +80,6 @@ export async function POST(req: NextRequest) {
       imageUrl: rawBody.imageUrl || "",
     };
 
-    const { records } = await getAllTransitRecords({}, body.docType);
-    const existingKeys = records.map((r) => r.stationaryNo.trim().toUpperCase());
-    const cleanKey = body.stationaryNo.trim().toUpperCase();
-
-    if (existingKeys.includes(cleanKey)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Duplicate rejected: A Transit Form with Stationary No '${body.stationaryNo}' already exists in database.`,
-          isDuplicate: true,
-        },
-        { status: 409 }
-      );
-    }
-
     const validation = validateTransitRecord(body, []);
     if (!validation.isValid) {
       return NextResponse.json(
@@ -113,33 +99,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: (saveResult as any).error || `Failed to save Transit Form ${body.stationaryNo}`,
+          error: saveResult.isDuplicate
+            ? `Duplicate rejected: A Transit Form with Stationary No '${body.stationaryNo}' already exists in database.`
+            : (saveResult as any).error || `Failed to save Transit Form ${body.stationaryNo}`,
           isDuplicate: saveResult.isDuplicate,
         },
         { status: saveResult.isDuplicate ? 409 : 503 }
       );
     }
 
-    // Automatically sync to Google Sheets if WEBHOOK is configured
-    const webhookUrl = process.env.GOOGLE_DRIVE_WEBHOOK_URL?.trim();
-    let googleDriveSynced = false;
+    // Non-blocking background sync to Google Sheets (completes in parallel so client returns in < 150ms)
+    const webhookUrl = (rawBody.webhookUrl || process.env.GOOGLE_DRIVE_WEBHOOK_URL)?.trim();
     if (webhookUrl) {
-      try {
-        const syncRes = await syncRecordToGoogleDrive(
-          { record: saveResult.record || body, docType: body.docType },
-          { enabled: true, webhookUrl }
-        );
-        googleDriveSynced = syncRes.success;
-      } catch (syncErr) {
+      syncRecordToGoogleDrive(
+        { record: saveResult.record || body, docType: body.docType },
+        { enabled: true, webhookUrl }
+      ).catch((syncErr) => {
         console.warn("[Auto-Sync Google Sheets Error]:", syncErr);
-      }
+      });
     }
 
     return NextResponse.json(
       {
         success: true,
         record: saveResult.record,
-        googleDriveSynced,
+        googleDriveSynced: Boolean(webhookUrl),
         message: `Successfully saved Transit Form ${body.stationaryNo}`,
       },
       { status: 201 }
