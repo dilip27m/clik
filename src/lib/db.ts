@@ -6,8 +6,13 @@ import {
 } from "@/types/transit";
 import { dateToComparable } from "@/lib/validation";
 
+function cleanConnectionString(url?: string): string {
+  if (!url) return "";
+  return url.trim().replace(/^["']|["']$/g, "");
+}
+
 const connectionString =
-  process.env.DATABASE_URL ||
+  cleanConnectionString(process.env.DATABASE_URL) ||
   "postgresql://postgres:postgres@localhost:5433/transit_db?schema=public";
 
 let pool: Pool | null = null;
@@ -22,21 +27,22 @@ const defaultLocalUrl = "postgresql://postgres:postgres@localhost:5433/transit_d
 let activeConnString: string | null = null;
 
 export function getPool(overrideConnStr?: string): Pool {
-  const targetConn = overrideConnStr || process.env.DATABASE_URL || connectionString;
+  const rawTarget = overrideConnStr || process.env.DATABASE_URL || connectionString;
+  const targetConn = cleanConnectionString(rawTarget);
   if (!pool || (activeConnString && activeConnString !== targetConn)) {
     if (pool) {
       pool.end().catch(() => {});
     }
-    const isCloud =
-      targetConn.includes("sslmode=require") ||
-      targetConn.includes("neon.tech") ||
-      targetConn.includes("supabase.co") ||
-      targetConn.includes("pooler.supabase.com");
+    const isLocal =
+      targetConn.includes("localhost") ||
+      targetConn.includes("127.0.0.1") ||
+      targetConn.includes("0.0.0.0");
+    const isCloud = !isLocal;
 
     pool = new Pool({
       connectionString: targetConn,
       ssl: isCloud ? { rejectUnauthorized: false } : undefined,
-      connectionTimeoutMillis: 10000, // 10s for Neon serverless wakeups
+      connectionTimeoutMillis: 15000, // 15s for Neon serverless wakeups
       max: 10,
     });
     activeConnString = targetConn;
