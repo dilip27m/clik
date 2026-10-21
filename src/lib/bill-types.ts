@@ -138,7 +138,19 @@ export interface Bill {
   hasPhoto: boolean;
   photoUrl: string | null; // Google Drive link once uploaded
   sheetStatus: "pending" | "synced" | "failed";
+  timings: Timings;
   createdAt: string;
+}
+
+// How long each step took for one bill (milliseconds).
+export interface Timings {
+  prepareMs?: number; // shrink + blur check on the phone
+  uploadMs?: number;  // photo travelling to the server and the answer back
+  aiMs?: number;      // Gemini reading the bill
+  reviewMs?: number;  // the person checking the values
+  dbMs?: number;      // saving in the database (Neon)
+  sheetMs?: number;   // Google Sheet row + photo into Drive
+  manual?: boolean;   // typed in by hand, no AI
 }
 
 export interface Check {

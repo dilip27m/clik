@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { BILL_TYPES, checkBill, cleanBillData, isBillType } from "@/lib/bill-types";
+import { BILL_TYPES, Timings, checkBill, cleanBillData, isBillType } from "@/lib/bill-types";
+
+const TIMING_KEYS = ["prepareMs", "uploadMs", "aiMs", "reviewMs"] as const;
+
+// Only accept sensible numbers from the phone.
+function cleanTimings(raw: unknown): Timings {
+  const t: Timings = {};
+  if (!raw || typeof raw !== "object") return t;
+  const r = raw as Record<string, unknown>;
+  for (const k of TIMING_KEYS) {
+    const v = Number(r[k]);
+    if (Number.isFinite(v) && v >= 0 && v < 24 * 3600 * 1000) t[k] = Math.round(v);
+  }
+  if (r.manual === true) t.manual = true;
+  return t;
+}
 import { getCompany } from "@/lib/companies";
-import { DuplicateBillError, createBill, listBills } from "@/lib/db";
+import { DuplicateBillError, createBill, listBills, saveDbTime } from "@/lib/db";
 import { retryUnsynced, syncBill } from "@/lib/sheets";
 
 export async function GET(req: NextRequest) {
@@ -36,8 +51,13 @@ export async function POST(req: NextRequest) {
       ? { mime: body.mime || "image/jpeg", data: Buffer.from(body.photo.replace(/^data:[^;]+;base64,/, ""), "base64") }
       : undefined;
 
+  const timings = cleanTimings(body.timings);
   try {
-    const bill = await createBill(company, type, data, photo);
+    const dbStart = Date.now();
+    const bill = await createBill(company, type, data, photo, timings);
+    const dbMs = Date.now() - dbStart;
+    bill.timings = { ...timings, dbMs };
+    after(() => saveDbTime(bill.id, dbMs));
     after(() => syncBill(bill.id));
     return NextResponse.json({ bill, checks: checkBill(type, data) });
   } catch (e) {

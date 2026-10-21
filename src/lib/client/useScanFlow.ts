@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { Bill, BillData, BillType, BILL_TYPES } from "@/lib/bill-types";
+import { useCallback, useRef, useState } from "react";
+import { Bill, BillData, BillType, BILL_TYPES, Timings } from "@/lib/bill-types";
 import type { Credits } from "@/components/CreditsBadge";
 import { api, ApiError } from "./api";
 import { PreparedPhoto, photoProblem, preparePhoto } from "./image";
@@ -34,11 +34,18 @@ export function useScanFlow(company: string) {
   const [credits, setCredits] = useState<Credits | undefined>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<{ message: string; existingId?: number } | null>(null);
+  // Stopwatch for the bill in progress; sent along when it is saved.
+  const timing = useRef<{ t: Timings; reviewStart: number }>({ t: {}, reviewStart: 0 });
 
   const read = useCallback(async (photo: PreparedPhoto) => {
     setState({ step: "reading", photo });
     try {
+      const sent = performance.now();
       const res = await api<ExtractResponse>("/api/extract", { body: { image: photo.base64, mime: "image/jpeg", company } });
+      const roundTrip = performance.now() - sent;
+      timing.current.t.aiMs = res.aiMs;
+      timing.current.t.uploadMs = Math.max(0, roundTrip - (res.aiMs ?? 0));
+      timing.current.reviewStart = performance.now();
       if (res.credits) setCredits(res.credits);
       if (res.ok) {
         setState({
@@ -62,7 +69,9 @@ export function useScanFlow(company: string) {
       setSaveError(null);
       setState({ step: "checking" });
       try {
+        const prepStart = performance.now();
         const photo = await preparePhoto(file);
+        timing.current = { t: { prepareMs: performance.now() - prepStart }, reviewStart: 0 };
         const problem = photoProblem(photo);
         if (problem) setState({ step: "blurry", photo, reason: problem });
         else await read(photo);
@@ -95,8 +104,9 @@ export function useScanFlow(company: string) {
       setSaving(true);
       setSaveError(null);
       try {
+        const t = { ...timing.current.t, reviewMs: performance.now() - timing.current.reviewStart };
         const res = await api<{ bill: Bill }>("/api/bills", {
-          body: { type, data, company: billCompany, photo: photo?.base64, mime: "image/jpeg" },
+          body: { type, data, company: billCompany, photo: photo?.base64, mime: "image/jpeg", timings: t },
         });
         setState({ step: "saved", bill: res.bill });
       } catch (e) {
@@ -111,6 +121,7 @@ export function useScanFlow(company: string) {
 
   const enterByHand = useCallback((type: BillType, photo?: PreparedPhoto) => {
     const data = Object.fromEntries(BILL_TYPES[type].fields.map((f) => [f.key, null]));
+    timing.current = { t: { ...timing.current.t, manual: true, aiMs: undefined, uploadMs: undefined }, reviewStart: performance.now() };
     setState({ step: "review", photo, draft: { type, data, unsure: [] } });
   }, []);
 
