@@ -1,36 +1,60 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bill Book — Sri Lalithha Pulverisers
 
-## Getting Started
+Take a photo of a bill → the app reads it → a person checks it → it is saved and copied into a Google Sheet (with the photo in Google Drive).
 
-First, run the development server:
+It understands 4 bills:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+| Bill | Paper | Saved fields |
+|---|---|---|
+| **Transit Form** (ore in) | Transit Form (Duplicate), `DD…` | Stationary No, Date, Lessee, Consignee, Grade, Vehicle, Qty, Transit Form No |
+| **APMDC Bill** (purchase) | APMDC GST Invoice, `PSI/…` | Invoice No, Date, Item, Qty, Taxable, CGST, SGST, Invoice Value, Vehicle |
+| **Form E** (powder out) | Form E Transit Pass (Original), `MDLB…` | Stationary No, Date, Consignee, Grade, Vehicle, Qty, Sale Value |
+| **Sales Bill** | Sri Lalithha Tax Invoice | Invoice No, Date, Bill To, Item, Qty, Rate, Taxable, CGST, SGST, Total |
+
+Sample photos of each are in `samples/`.
+
+## How it works
+
+- **Two companies:** Sri Lalithha Pulverisers and Renuka Minerals (list in `src/lib/companies.ts`). One login; a switch at the top changes company. Each company has its own bills, totals, Excel download and **its own Google Sheet**. When a bill is read, the company printed on it (consignee / receiver / seller) is picked automatically and can be changed before saving.
+
+- **Reading:** Google Gemini (free tier). One scan = one request. Free tier is **20 requests per model per day per Google project**, reset at midnight US Pacific (≈ 12:30 / 1:30 PM IST). The app tries 4 models in turn, so one project gives **80 scans a day**. The app counts them and shows "N scans left today · refills at …".
+- **Blurry photos** are caught on the phone before sending (no scan used). If Gemini says the photo is blurry, cut off or dark, the app asks for a retake.
+- **Checks:** GST adds up, CGST = SGST, qty × rate = taxable, vehicle number format, bill number format, date not in the future / not a year old, duplicates.
+- **APMDC Bill ↔ Transit Form** are matched by truck + quantity + date; unmatched ones show under "Needs a look".
+- **Google Sheet:** every save/edit/delete updates the sheet in the background (retried later if it fails). Tabs: Monthly Summary, Transit Forms, APMDC Bills, Form E, Sales Bills.
+
+## Code map
+
+```
+src/lib/bill-types.ts      the 4 bill types, fields, cleaning, checks, formatting (shared)
+src/lib/extractor.ts       Gemini prompt + structured output + retake rules
+src/lib/quota.ts           free-tier scan credits
+src/lib/db.ts              Postgres (Neon) — bills, photos, ai_usage tables
+src/lib/sheets.ts          Google Sheet / Drive sync
+src/lib/auth.ts, proxy.ts  company name + 4-digit password login
+src/lib/client/*           browser helpers: api, photo compression + blur score, cached fetch, scan flow
+src/components/*           UI pieces (ui/, bill/, scan/, bills/, home/, layout/)
+src/app/(app)/*            pages: Home, Scan, Bills, Bill detail
+google-apps-script/Code.gs paste into the Google Sheet's Apps Script
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Environment variables (Vercel → Settings → Environment Variables)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+See `.env.example`. Required: `DATABASE_URL` (Neon), `APP_PASSWORD` (4 digits), `AUTH_SECRET`, `GEMINI_API_KEYS`, and per company `GOOGLE_SHEETS_WEBHOOK_URL_SLP` / `GOOGLE_SHEETS_WEBHOOK_URL_RENUKA` plus `GOOGLE_SHEET_URL_SLP` / `GOOGLE_SHEET_URL_RENUKA`. (For Sri Lalithha the older names `GOOGLE_SHEETS_WEBHOOK_URL` and `NEXT_PUBLIC_GOOGLE_SHEET_URL` also work.)
 
-## Learn More
+### 2. Google Sheet + Drive photos (do this once per company, each in its own Google Sheet)
 
-To learn more about Next.js, take a look at the following resources:
+1. Open the Google Sheet → **Extensions → Apps Script**.
+2. Delete everything in `Code.gs`, paste the whole of `google-apps-script/Code.gs`, click **Save**.
+3. **Deploy → New deployment** → type **Web app** → Execute as **Me**, Who has access **Anyone** → **Deploy**. Allow the permissions it asks for (Sheets + Drive).
+4. Copy the **Web app URL** into `GOOGLE_SHEETS_WEBHOOK_URL` on Vercel and redeploy.
+5. The tabs and the Drive folder **Bill Photos** are created automatically with the first saved bill. The old tabs (Transit Duplicate, Transit Original, Tax Invoices) can be deleted by hand.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. Run locally
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm install
+npm run dev
+```
