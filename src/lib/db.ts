@@ -121,6 +121,7 @@ export interface ListFilter {
   month?: string;   // YYYY-MM
   search?: string;
   limit?: number;
+  newestSavedFirst?: boolean; // order by when it was saved, not the bill date
 }
 
 export async function listBills(f: ListFilter): Promise<Bill[]> {
@@ -141,7 +142,7 @@ export async function listBills(f: ListFilter): Promise<Bill[]> {
   }
   args.push(Math.min(f.limit ?? 500, 2000));
   const sql = `${SELECT} WHERE ${where.join(" AND ")}
-    ORDER BY b.bill_date DESC NULLS LAST, b.id DESC LIMIT $${args.length}`;
+    ORDER BY ${f.newestSavedFirst ? "b.created_at DESC" : "b.bill_date DESC NULLS LAST, b.id DESC"} LIMIT $${args.length}`;
   const { rows } = await pool.query(sql, args);
   return rows.map(toBill);
 }
@@ -270,6 +271,18 @@ export async function setModelExhausted(day: string, model: string) {
      ON CONFLICT (day, model) DO UPDATE SET exhausted = true`,
     [day, model]
   );
+}
+
+// Month (YYYY-MM) of the bill saved most recently, so Home opens on the month
+// the user is working on — bills are often entered weeks after their date.
+export async function latestBillMonth(company: string): Promise<string | null> {
+  const pool = await db();
+  const { rows } = await pool.query(
+    `SELECT to_char(bill_date, 'YYYY-MM') AS month FROM bills
+     WHERE company = $1 AND bill_date IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+    [company]
+  );
+  return rows[0]?.month ?? null;
 }
 
 export interface MonthStats {

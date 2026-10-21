@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { ChevronRight, ScanLine, TriangleAlert } from "lucide-react";
 import { formatDate, formatMonth, formatQty } from "@/lib/bill-types";
 import { useCompany } from "@/lib/client/company";
@@ -9,6 +10,7 @@ import type { HomeResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
 import { BillTypeChip } from "@/components/bill/billStyle";
 import { CreditsBadge } from "@/components/CreditsBadge";
+import { MonthSelect } from "@/components/bills/MonthSelect";
 import { MonthSummary } from "@/components/home/MonthSummary";
 import { ButtonLink } from "@/components/ui/Button";
 import { Card, SectionTitle } from "@/components/ui/Card";
@@ -21,8 +23,12 @@ function greeting() {
 
 export default function HomePage() {
   const { company, info } = useCompany();
-  const { data, error } = useCached<HomeResponse>(`/api/home?company=${company}`);
-  const month = new Date().toISOString().slice(0, 7);
+  // No month chosen: the server picks the month of the latest saved bill.
+  const [picked, setPicked] = useState<{ company: string; month: string } | null>(null);
+  const chosen = picked?.company === company ? picked.month : null;
+  const { data, error } = useCached<HomeResponse>(`/api/home?company=${company}${chosen ? `&month=${chosen}` : ""}`);
+  const month = data?.stats.month ?? chosen ?? new Date().toISOString().slice(0, 7);
+  const isCurrent = month === new Date().toISOString().slice(0, 7);
 
   return (
     <div className="space-y-8">
@@ -48,8 +54,9 @@ export default function HomePage() {
       {error && !data && <Notice tone="error" title="Could not load">{error}</Notice>}
 
       <section>
-        <SectionTitle>
-          {info.short} · {formatMonth(month)} so far
+        <SectionTitle action={<MonthSelect value={month} allowAll={false} className="h-10 text-sm" onChange={(m) => setPicked({ company, month: m })} />}>
+          {info.short} · {formatMonth(month)}
+          {isCurrent && " so far"}
         </SectionTitle>
         <MonthSummary stats={data?.stats} />
       </section>

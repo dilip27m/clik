@@ -19,7 +19,7 @@ function BillsView() {
   const params = useSearchParams();
   const t = params.get("type");
   const type: BillType = isBillType(t) ? t : "transit_in";
-  const month = params.get("month") ?? new Date().toISOString().slice(0, 7);
+  const month = params.get("month") ?? ""; // all months unless one is picked
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
 
@@ -85,7 +85,7 @@ function BillsView() {
         <BillListSkeleton />
       ) : data && data.bills.length === 0 ? (
         <Card className="p-8 text-center text-ink-soft">
-          No {BILL_TYPES[type].name} bills {q ? "match your search" : "for this month"}.
+          No {BILL_TYPES[type].name} bills {q ? "match your search" : month ? "for this month" : "yet"}.
         </Card>
       ) : (
         <div className="space-y-3">
