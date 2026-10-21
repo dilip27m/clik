@@ -1,22 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Bill Book: a checked bill on terracotta, with a barytes crystal. -->
   <defs>
-    <radialGradient id="favBg" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#18181b"/>
-      <stop offset="100%" stop-color="#050505"/>
-    </radialGradient>
-    <linearGradient id="favEmerald" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#34d399"/>
-      <stop offset="100%" stop-color="#059669"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c8672f"/>
+      <stop offset="1" stop-color="#8f3f1d"/>
     </linearGradient>
-    <linearGradient id="favGold" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fde68a"/>
-      <stop offset="100%" stop-color="#d97706"/>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffcf7"/>
+      <stop offset="1" stop-color="#f6eadb"/>
     </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#4a1d08" flood-opacity="0.35"/>
+    </filter>
   </defs>
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#favBg)" stroke="#10b981" stroke-width="2"/>
-  <!-- Faceted Crystal Silhouette -->
-  <polygon points="32,10 46,24 32,32 18,24" fill="url(#favEmerald)"/>
-  <polygon points="18,24 32,32 32,52 18,42" fill="#047857"/>
-  <polygon points="32,32 46,24 46,42 32,52" fill="#065f46"/>
-  <polygon points="32,10 36,22 32,32 28,22" fill="url(#favGold)"/>
+
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+
+  <!-- The bill, with a torn (zig-zag) bottom edge -->
+  <path filter="url(#shadow)" fill="url(#paper)"
+        d="M150 104 h212 a20 20 0 0 1 20 20 v284
+           l-29 -20 -29 20 -29 -20 -29 20 -29 -20 -29 20 -29 -20 -29 20
+           v-284 a20 20 0 0 1 20 -20 z"/>
+
+  <!-- Printed lines -->
+  <rect x="176" y="150" width="112" height="18" rx="9" fill="#e7d3bb"/>
+  <rect x="176" y="186" width="160" height="18" rx="9" fill="#efe0cd"/>
+
+  <!-- The check mark: "read and checked" -->
+  <path d="M190 292 l46 46 l92 -104" fill="none" stroke="#b5552b" stroke-width="38"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Barytes crystal -->
+  <g transform="translate(372 132)">
+    <polygon points="0,-62 46,-14 0,62 -46,-14" fill="#f2c45a"/>
+    <polygon points="0,-62 46,-14 0,-4" fill="#fbe3a0"/>
+    <polygon points="0,-62 -46,-14 0,-4" fill="#f7d684"/>
+    <polygon points="-46,-14 0,-4 0,62" fill="#d9952a"/>
+    <polygon points="46,-14 0,-4 0,62" fill="#c27f1c"/>
+    <polygon points="0,-62 46,-14 0,62 -46,-14" fill="none" stroke="#fff6dd" stroke-width="6" stroke-linejoin="round"/>
+  </g>
 </svg>
