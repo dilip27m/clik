@@ -11,6 +11,8 @@ import { BillDetails } from "@/components/bill/BillDetails";
 import { BillForm } from "@/components/bill/BillForm";
 import { BillPhoto } from "@/components/bill/BillPhoto";
 import { BillTypeChip } from "@/components/bill/billStyle";
+import { getCompany } from "@/lib/companies";
+import { CompanyPicker } from "@/components/CompanyPicker";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Notice } from "@/components/ui/Notice";
@@ -21,6 +23,7 @@ export default function BillPage() {
   const router = useRouter();
   const { data, error, reload } = useCached<{ bill: Bill; matches: Bill[]; sheetsConfigured: boolean }>(`/api/bills/${id}`);
   const [editing, setEditing] = useState(false);
+  const [editCompany, setEditCompany] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -42,7 +45,7 @@ export default function BillPage() {
     setBusy(true);
     setActionError(null);
     try {
-      await api(`/api/bills/${bill.id}`, { method: "PATCH", body: { data: values } });
+      await api(`/api/bills/${bill.id}`, { method: "PATCH", body: { data: values, company: editCompany ?? bill.company } });
       setEditing(false);
       reload();
     } catch (e) {
@@ -75,7 +78,7 @@ export default function BillPage() {
         <BillTypeChip type={bill.type} />
       </div>
       <p className="-mt-3 text-ink-soft">
-        {formatDate(bill.date)} · {bill.party}
+        {getCompany(bill.company).name} · {formatDate(bill.date)} · {bill.party}
       </p>
 
       {actionError && <Notice tone="error">{actionError}</Notice>}
@@ -92,18 +95,24 @@ export default function BillPage() {
 
         <div className="space-y-4">
           {editing ? (
-            <BillForm
-              type={bill.type}
-              initial={bill.data}
-              saving={busy}
-              submitLabel="Save changes"
-              onSubmit={saveEdit}
-              footer={
-                <Button type="button" variant="ghost" full onClick={() => setEditing(false)}>
-                  Cancel
-                </Button>
-              }
-            />
+            <>
+              <div className="rounded-2xl border border-line bg-paper p-4">
+                <p className="mb-2 text-[0.95rem] font-medium text-ink-soft">Company</p>
+                <CompanyPicker value={editCompany ?? bill.company} onChange={setEditCompany} />
+              </div>
+              <BillForm
+                type={bill.type}
+                initial={bill.data}
+                saving={busy}
+                submitLabel="Save changes"
+                onSubmit={saveEdit}
+                footer={
+                  <Button type="button" variant="ghost" full onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                }
+              />
+            </>
           ) : (
             <>
               <Card className="overflow-hidden">

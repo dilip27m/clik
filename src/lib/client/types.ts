@@ -12,6 +12,7 @@ export interface HomeResponse {
 
 export interface Extracted {
   type: BillType;
+  company: string | null;
   data: BillData;
   unsure: string[];
   checks: Check[];

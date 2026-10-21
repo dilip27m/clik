@@ -1,9 +1,11 @@
 import "server-only";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { BILL_TYPES, BillData, BillType, Check, checkBill, cleanBillData, isBillType } from "./bill-types";
+import { companyFromName } from "./companies";
 import { availableModels, creditsLeft, markModelExhausted, recordModelUse } from "./quota";
 
-const PROMPT = `You read photos of business bills for "Sri Lalithha Pulverisers", a barytes mill in Andhra Pradesh.
+const PROMPT = `You read photos of business bills for two barytes companies in Andhra Pradesh:
+"Sri Lalithha Pulverisers" and "Renuka Minerals". Either company can be "our side" of a bill.
 The photo is one of exactly 4 bill types. First decide which, then read its fields exactly as printed.
 
 TYPE "transit_in" — Government of AP "TRANSIT FORM (Duplicate)", OMMS 2.0, beige security paper.
@@ -35,13 +37,17 @@ TYPE "form_e" — Government of AP "FORM E", "TRANSIT PASS (Original)", blue-bor
   qty: number from "Dispatched Quantity" (e.g. "37.5 PRODUCTION QUANTITY (MT)" → 37.5).
   saleValue: "Sale Value".
 
-TYPE "sales_invoice" — "Tax Invoice" with "SRI LALITHHA PULVERISERS" as the seller heading.
+TYPE "sales_invoice" — "Tax Invoice" whose seller heading is our company (e.g. "SRI LALITHHA PULVERISERS" or "RENUKA MINERALS").
   invoiceNo: "Invoice No." (e.g. "2026-27/28").
   date: "Date" under Invoice Details.
   billTo: the company name on the first line under "Bill To".
   item: "Item name" (e.g. "BARYTES POWDER 3.96", "Being Crushing Charges for Barytes powder").
   qty: "Quantity". rate: "Price/Unit". taxable: "Taxable amount".
   cgst: CGST amount. sgst: SGST amount. total: the final "Total" (after round off).
+
+OUR COMPANY — set "ourCompany" to the name of our side of the bill, exactly as printed:
+  transit_in: the "Mdl Name/Consignee Name".   apmdc_invoice: the receiver name under "Details of Receiver (Billed to)".
+  form_e: the "Company Name".                   sales_invoice: the seller name in the big heading at the top.
 
 PHOTO QUALITY — set "photoQuality":
   "clear"    the important numbers are easy to read
@@ -65,10 +71,11 @@ const SCHEMA = {
   properties: {
     type: { type: "string", enum: ["transit_in", "apmdc_invoice", "form_e", "sales_invoice", "unknown"] },
     photoQuality: { type: "string", enum: ["clear", "blurry", "cut_off", "dark"] },
+    ourCompany: { type: ["string", "null"] },
     ...Object.fromEntries(FIELD_KEYS.map((k) => [k, { type: ["string", "number", "null"] }])),
     unsure: { type: "array", items: { type: "string" } },
   },
-  required: ["type", "photoQuality", ...FIELD_KEYS, "unsure"],
+  required: ["type", "photoQuality", "ourCompany", ...FIELD_KEYS, "unsure"],
   additionalProperties: false,
 };
 
@@ -87,6 +94,7 @@ const RETAKE_MESSAGES: Record<string, string> = {
 
 export interface Extracted {
   type: BillType;
+  company: string | null; // detected from the name on the bill
   data: BillData;
   unsure: string[];
   checks: Check[];
@@ -135,7 +143,7 @@ function interpret(parsed: any): ExtractResult {
     unsure.add(def.keyField);
     checks.push({ field: def.keyField, level: "warn", message: "This number doesn't look complete — please check it" });
   }
-  const extracted: Extracted = { type, data, unsure: [...unsure], checks };
+  const extracted: Extracted = { type, company: companyFromName(parsed.ourCompany), data, unsure: [...unsure], checks };
 
   const missing = checks.filter((c) => c.level === "error").length;
   const quality = String(parsed.photoQuality || "clear");

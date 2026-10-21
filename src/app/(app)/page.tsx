@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ChevronRight, ScanLine, TriangleAlert } from "lucide-react";
 import { formatDate, formatMonth, formatQty } from "@/lib/bill-types";
+import { useCompany } from "@/lib/client/company";
 import { useCached } from "@/lib/client/useCached";
 import type { HomeResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
@@ -19,7 +20,8 @@ function greeting() {
 }
 
 export default function HomePage() {
-  const { data, error } = useCached<HomeResponse>("/api/home");
+  const { company, info } = useCompany();
+  const { data, error } = useCached<HomeResponse>(`/api/home?company=${company}`);
   const month = new Date().toISOString().slice(0, 7);
 
   return (
@@ -46,7 +48,9 @@ export default function HomePage() {
       {error && !data && <Notice tone="error" title="Could not load">{error}</Notice>}
 
       <section>
-        <SectionTitle>{formatMonth(month)} so far</SectionTitle>
+        <SectionTitle>
+          {info.short} · {formatMonth(month)} so far
+        </SectionTitle>
         <MonthSummary stats={data?.stats} />
       </section>
 

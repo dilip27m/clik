@@ -15,6 +15,8 @@ Sample photos of each are in `samples/`.
 
 ## How it works
 
+- **Two companies:** Sri Lalithha Pulverisers and Renuka Minerals (list in `src/lib/companies.ts`). One login; a switch at the top changes company. Each company has its own bills, totals, Excel download and **its own Google Sheet**. When a bill is read, the company printed on it (consignee / receiver / seller) is picked automatically and can be changed before saving.
+
 - **Reading:** Google Gemini (free tier). One scan = one request. Free tier is **20 requests per model per day per Google project**, reset at midnight US Pacific (≈ 12:30 / 1:30 PM IST). The app tries 4 models in turn, so one project gives **80 scans a day**. The app counts them and shows "N scans left today · refills at …".
 - **Blurry photos** are caught on the phone before sending (no scan used). If Gemini says the photo is blurry, cut off or dark, the app asks for a retake.
 - **Checks:** GST adds up, CGST = SGST, qty × rate = taxable, vehicle number format, bill number format, date not in the future / not a year old, duplicates.
@@ -40,9 +42,9 @@ google-apps-script/Code.gs paste into the Google Sheet's Apps Script
 
 ### 1. Environment variables (Vercel → Settings → Environment Variables)
 
-See `.env.example`. Required: `DATABASE_URL` (Neon), `APP_COMPANY_NAME`, `APP_PASSWORD` (4 digits), `AUTH_SECRET`, `GEMINI_API_KEYS`, `GOOGLE_SHEETS_WEBHOOK_URL`, `NEXT_PUBLIC_GOOGLE_SHEET_URL`.
+See `.env.example`. Required: `DATABASE_URL` (Neon), `APP_PASSWORD` (4 digits), `AUTH_SECRET`, `GEMINI_API_KEYS`, and per company `GOOGLE_SHEETS_WEBHOOK_URL_SLP` / `GOOGLE_SHEETS_WEBHOOK_URL_RENUKA` plus `GOOGLE_SHEET_URL_SLP` / `GOOGLE_SHEET_URL_RENUKA`. (For Sri Lalithha the older names `GOOGLE_SHEETS_WEBHOOK_URL` and `NEXT_PUBLIC_GOOGLE_SHEET_URL` also work.)
 
-### 2. Google Sheet + Drive photos
+### 2. Google Sheet + Drive photos (do this once per company, each in its own Google Sheet)
 
 1. Open the Google Sheet → **Extensions → Apps Script**.
 2. Delete everything in `Code.gs`, paste the whole of `google-apps-script/Code.gs`, click **Save**.

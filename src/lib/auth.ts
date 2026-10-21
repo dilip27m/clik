@@ -1,3 +1,5 @@
+import { COMPANIES } from "./companies";
+
 // Tiny login: company name + 4-digit password, kept in a signed cookie.
 // Uses Web Crypto so it works both in route handlers and in proxy.ts.
 
@@ -30,9 +32,12 @@ export async function isValidSession(token: string | undefined): Promise<boolean
 
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-export function checkLogin(company: string, password: string): boolean {
-  const wantCompany = process.env.APP_COMPANY_NAME || "";
-  const wantPassword = process.env.APP_PASSWORD || "";
-  if (!wantCompany || !wantPassword) return false;
-  return normalize(company) === normalize(wantCompany) && password.trim() === wantPassword.trim();
+// One password for the business; either company's name opens the app.
+// Returns the company to start in, or null when the login is wrong.
+export function checkLogin(company: string, password: string): string | null {
+  const wantPassword = (process.env.APP_PASSWORD || "").trim();
+  if (!wantPassword || password.trim() !== wantPassword) return null;
+  const typed = normalize(company);
+  const found = COMPANIES.find((c) => normalize(c.name) === typed || normalize(c.short) === typed);
+  return found?.id ?? null;
 }

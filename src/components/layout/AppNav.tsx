@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FolderOpen, House, LogOut, ScanLine } from "lucide-react";
+import { useCompany } from "@/lib/client/company";
 import { clearCache } from "@/lib/client/useCached";
+import { CompanyPicker } from "@/components/CompanyPicker";
 
 const LINKS = [
   { href: "/", label: "Home", icon: House },
@@ -22,21 +24,25 @@ async function logout() {
 }
 
 // Top bar on computers, bottom tab bar on phones.
-export function AppNav({ company }: { company: string }) {
+export function AppNav() {
   const path = usePathname();
+  const { company, setCompany, info } = useCompany();
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-line bg-cream/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-xl bg-clay font-display text-lg font-bold text-white shadow-lift">
-              {company.charAt(0) || "B"}
+          <Link href="/" className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-clay font-display text-lg font-bold text-white shadow-lift">
+              {info.name.charAt(0)}
             </span>
-            <span className="leading-tight">
+            <span className="min-w-0 leading-tight">
               <span className="block font-display text-lg font-semibold text-ink">Bill Book</span>
-              <span className="block text-xs text-ink-soft">{company}</span>
+              <span className="block truncate text-xs text-ink-soft">{info.name}</span>
             </span>
           </Link>
+          <div className="ml-4 hidden lg:block">
+            <CompanyPicker value={company} onChange={setCompany} size="sm" />
+          </div>
           <nav className="ml-auto hidden items-center gap-1 md:flex">
             {LINKS.map(({ href, label, icon: Icon }) => (
               <Link
@@ -56,6 +62,10 @@ export function AppNav({ company }: { company: string }) {
           >
             <LogOut className="size-4" /> <span className="hidden sm:inline">Log out</span>
           </button>
+        </div>
+        {/* On phones and small screens the company switch gets its own row. */}
+        <div className="mx-auto max-w-5xl px-4 pb-3 lg:hidden">
+          <CompanyPicker value={company} onChange={setCompany} />
         </div>
       </header>
 

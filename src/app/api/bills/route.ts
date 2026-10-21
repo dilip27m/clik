@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { BILL_TYPES, checkBill, cleanBillData, isBillType } from "@/lib/bill-types";
+import { getCompany } from "@/lib/companies";
 import { DuplicateBillError, createBill, listBills } from "@/lib/db";
 import { retryUnsynced, syncBill } from "@/lib/sheets";
 
@@ -7,6 +8,7 @@ export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;
   const type = p.get("type");
   const bills = await listBills({
+    company: getCompany(p.get("company")).id,
     type: isBillType(type) ? type : undefined,
     month: p.get("month") || undefined,
     search: p.get("q") || undefined,
@@ -19,6 +21,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const type: unknown = body.type;
   if (!isBillType(type)) return NextResponse.json({ error: "Unknown bill type" }, { status: 400 });
+  const company = getCompany(body.company).id;
 
   const def = BILL_TYPES[type];
   const data = cleanBillData(type, body.data || {});
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
       : undefined;
 
   try {
-    const bill = await createBill(type, data, photo);
+    const bill = await createBill(company, type, data, photo);
     after(() => syncBill(bill.id));
     return NextResponse.json({ bill, checks: checkBill(type, data) });
   } catch (e) {

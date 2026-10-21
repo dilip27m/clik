@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS bills (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (type, doc_no)
 );
+-- Each bill belongs to one company; bill numbers are unique per company.
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT 'slp';
+ALTER TABLE bills DROP CONSTRAINT IF EXISTS bills_type_doc_no_key;
+CREATE UNIQUE INDEX IF NOT EXISTS bills_company_type_doc ON bills (company, type, doc_no);
 CREATE INDEX IF NOT EXISTS bills_type_date ON bills (type, bill_date DESC);
 CREATE INDEX IF NOT EXISTS bills_vehicle ON bills (vehicle_no);
 
@@ -80,7 +84,7 @@ async function db(): Promise<Pool> {
 }
 
 const SELECT = `
-  SELECT b.id, b.type, b.doc_no, b.bill_date, b.party, b.vehicle_no, b.qty, b.amount, b.data,
+  SELECT b.id, b.company, b.type, b.doc_no, b.bill_date, b.party, b.vehicle_no, b.qty, b.amount, b.data,
          b.photo_url, b.sheet_status, b.created_at,
          (b.photo_url IS NOT NULL OR EXISTS (SELECT 1 FROM bill_photos p WHERE p.bill_id = b.id)) AS has_photo
   FROM bills b`;
@@ -89,6 +93,7 @@ const SELECT = `
 function toBill(r: any): Bill {
   return {
     id: Number(r.id),
+    company: r.company,
     type: r.type,
     docNo: r.doc_no,
     date: r.bill_date ?? "",
@@ -111,16 +116,17 @@ export class DuplicateBillError extends Error {
 }
 
 export interface ListFilter {
+  company: string;
   type?: BillType;
   month?: string;   // YYYY-MM
   search?: string;
   limit?: number;
 }
 
-export async function listBills(f: ListFilter = {}): Promise<Bill[]> {
+export async function listBills(f: ListFilter): Promise<Bill[]> {
   const pool = await db();
-  const where: string[] = [];
-  const args: unknown[] = [];
+  const where: string[] = ["b.company = $1"];
+  const args: unknown[] = [f.company];
   if (f.type) {
     args.push(f.type);
     where.push(`b.type = $${args.length}`);
@@ -134,7 +140,7 @@ export async function listBills(f: ListFilter = {}): Promise<Bill[]> {
     where.push(`(b.doc_no ILIKE $${args.length} OR b.party ILIKE $${args.length} OR b.vehicle_no ILIKE $${args.length})`);
   }
   args.push(Math.min(f.limit ?? 500, 2000));
-  const sql = `${SELECT} ${where.length ? "WHERE " + where.join(" AND ") : ""}
+  const sql = `${SELECT} WHERE ${where.join(" AND ")}
     ORDER BY b.bill_date DESC NULLS LAST, b.id DESC LIMIT $${args.length}`;
   const { rows } = await pool.query(sql, args);
   return rows.map(toBill);
@@ -146,47 +152,58 @@ export async function getBill(id: number): Promise<Bill | null> {
   return rows[0] ? toBill(rows[0]) : null;
 }
 
-export async function findBill(type: BillType, docNo: string): Promise<number | null> {
+export async function findBill(company: string, type: BillType, docNo: string): Promise<number | null> {
   const pool = await db();
-  const { rows } = await pool.query(`SELECT id FROM bills WHERE type = $1 AND doc_no = $2`, [type, docNo]);
+  const { rows } = await pool.query(`SELECT id FROM bills WHERE company = $1 AND type = $2 AND doc_no = $3`, [
+    company,
+    type,
+    docNo,
+  ]);
   return rows[0] ? Number(rows[0].id) : null;
 }
 
-export async function createBill(type: BillType, data: BillData, photo?: { mime: string; data: Buffer }): Promise<Bill> {
+export async function createBill(
+  company: string,
+  type: BillType,
+  data: BillData,
+  photo?: { mime: string; data: Buffer }
+): Promise<Bill> {
   const pool = await db();
   const s = summarize(type, data);
   // Bill + photo in one statement (one round trip to the database).
   const { rows } = await pool.query(
     `WITH b AS (
-       INSERT INTO bills (type, doc_no, bill_date, party, vehicle_no, qty, amount, data)
-       VALUES ($1, $2, NULLIF($3, '')::date, $4, $5, $6, $7, $8)
-       ON CONFLICT (type, doc_no) DO NOTHING
+       INSERT INTO bills (type, doc_no, bill_date, party, vehicle_no, qty, amount, data, company)
+       VALUES ($1, $2, NULLIF($3, '')::date, $4, $5, $6, $7, $8, $11)
+       ON CONFLICT (company, type, doc_no) DO NOTHING
        RETURNING *
      ), p AS (
        INSERT INTO bill_photos (bill_id, mime, data)
        SELECT id, $9, $10 FROM b WHERE $10::bytea IS NOT NULL
      )
      SELECT b.*, ($10::bytea IS NOT NULL) AS has_photo FROM b`,
-    [type, s.docNo, s.date, s.party, s.vehicleNo, s.qty, s.amount, data, photo?.mime ?? null, photo?.data ?? null]
+    [type, s.docNo, s.date, s.party, s.vehicleNo, s.qty, s.amount, data, photo?.mime ?? null, photo?.data ?? null, company]
   );
-  if (!rows[0]) throw new DuplicateBillError((await findBill(type, s.docNo)) ?? 0);
+  if (!rows[0]) throw new DuplicateBillError((await findBill(company, type, s.docNo)) ?? 0);
   return toBill(rows[0]);
 }
 
-export async function updateBill(id: number, data: BillData): Promise<Bill | null> {
+// `company` moves the bill to the other company (and its sheet).
+export async function updateBill(id: number, data: BillData, company?: string): Promise<Bill | null> {
   const pool = await db();
   const current = await getBill(id);
   if (!current) return null;
   const s = summarize(current.type, data);
-  if (s.docNo !== current.docNo) {
-    const other = await findBill(current.type, s.docNo);
+  const target = company ?? current.company;
+  if (s.docNo !== current.docNo || target !== current.company) {
+    const other = await findBill(target, current.type, s.docNo);
     if (other && other !== id) throw new DuplicateBillError(other);
   }
   await pool.query(
     `UPDATE bills SET doc_no = $2, bill_date = NULLIF($3, '')::date, party = $4, vehicle_no = $5,
-       qty = $6, amount = $7, data = $8, sheet_status = 'pending', updated_at = now()
+       qty = $6, amount = $7, data = $8, company = $9, sheet_status = 'pending', updated_at = now()
      WHERE id = $1`,
-    [id, s.docNo, s.date, s.party, s.vehicleNo, s.qty, s.amount, data]
+    [id, s.docNo, s.date, s.party, s.vehicleNo, s.qty, s.amount, data, target]
   );
   return getBill(id);
 }
@@ -220,12 +237,13 @@ export async function markSyncFailed(id: number) {
   await pool.query(`UPDATE bills SET sheet_status = 'failed' WHERE id = $1`, [id]);
 }
 
-export async function unsyncedBillIds(limit = 5): Promise<number[]> {
+export async function unsyncedBillIds(companies: string[], limit = 5): Promise<number[]> {
   const pool = await db();
   const { rows } = await pool.query(
-    `SELECT id FROM bills WHERE sheet_status <> 'synced' AND updated_at < now() - interval '1 minute'
+    `SELECT id FROM bills
+     WHERE company = ANY($2) AND sheet_status <> 'synced' AND updated_at < now() - interval '1 minute'
      ORDER BY updated_at LIMIT $1`,
-    [limit]
+    [limit, companies]
   );
   return rows.map((r) => Number(r.id));
 }
@@ -259,15 +277,15 @@ export interface MonthStats {
   byType: Record<BillType, { count: number; qty: number; amount: number; gst: number }>;
 }
 
-export async function monthStats(month: string): Promise<MonthStats> {
+export async function monthStats(company: string, month: string): Promise<MonthStats> {
   const pool = await db();
   const { rows } = await pool.query(
     `SELECT type, count(*)::int AS count, COALESCE(sum(qty), 0) AS qty, COALESCE(sum(amount), 0) AS amount,
             COALESCE(sum(COALESCE((data->>'cgst')::numeric, 0) + COALESCE((data->>'sgst')::numeric, 0)), 0) AS gst
      FROM bills
-     WHERE bill_date >= $1::date AND bill_date < ($1::date + interval '1 month')
+     WHERE company = $2 AND bill_date >= $1::date AND bill_date < ($1::date + interval '1 month')
      GROUP BY type`,
-    [`${month}-01`]
+    [`${month}-01`, company]
   );
   const empty = { count: 0, qty: 0, amount: 0, gst: 0 };
   const byType = {
@@ -284,20 +302,21 @@ export async function monthStats(month: string): Promise<MonthStats> {
 
 // Every APMDC bill should have a Transit Form for the same truck, day and quantity.
 // Returns the bills on either side that have no partner.
-export async function unmatchedPurchases(): Promise<Bill[]> {
+export async function unmatchedPurchases(company: string): Promise<Bill[]> {
   const pool = await db();
   const { rows } = await pool.query(
     `${SELECT}
-     WHERE b.type IN ('apmdc_invoice', 'transit_in')
+     WHERE b.company = $1 AND b.type IN ('apmdc_invoice', 'transit_in')
        AND b.bill_date >= now() - interval '60 days'
        AND NOT EXISTS (
          SELECT 1 FROM bills o
-         WHERE o.type = CASE b.type WHEN 'apmdc_invoice' THEN 'transit_in' ELSE 'apmdc_invoice' END
+         WHERE o.company = b.company AND o.type = CASE b.type WHEN 'apmdc_invoice' THEN 'transit_in' ELSE 'apmdc_invoice' END
            AND o.vehicle_no = b.vehicle_no AND o.vehicle_no <> ''
            AND o.qty = b.qty
            AND abs(o.bill_date - b.bill_date) <= 1)
        AND b.created_at < now() - interval '2 days'
-     ORDER BY b.bill_date DESC LIMIT 20`
+     ORDER BY b.bill_date DESC LIMIT 20`,
+    [company]
   );
   return rows.map(toBill);
 }
@@ -309,9 +328,10 @@ export async function matchingBills(bill: Bill): Promise<Bill[]> {
   const pool = await db();
   const other = bill.type === "apmdc_invoice" ? "transit_in" : "apmdc_invoice";
   const { rows } = await pool.query(
-    `${SELECT} WHERE b.type = $1 AND b.vehicle_no = $2 AND b.qty = $3 AND abs(b.bill_date - $4::date) <= 1
+    `${SELECT}
+     WHERE b.company = $5 AND b.type = $1 AND b.vehicle_no = $2 AND b.qty = $3 AND abs(b.bill_date - $4::date) <= 1
      ORDER BY b.bill_date LIMIT 5`,
-    [other, bill.vehicleNo, bill.qty, bill.date]
+    [other, bill.vehicleNo, bill.qty, bill.date, bill.company]
   );
   return rows.map(toBill);
 }

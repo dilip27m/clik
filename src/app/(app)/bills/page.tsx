@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Download, ExternalLink, Search } from "lucide-react";
 import { BILL_TYPES, Bill, BillType, isBillType } from "@/lib/bill-types";
+import { useCompany } from "@/lib/client/company";
 import { useCached } from "@/lib/client/useCached";
 import type { HomeResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
@@ -27,9 +28,10 @@ function BillsView() {
     return () => clearTimeout(id);
   }, [search]);
 
-  const query = new URLSearchParams({ type, month, ...(q ? { q } : {}) }).toString();
+  const { company } = useCompany();
+  const query = new URLSearchParams({ company, type, month, ...(q ? { q } : {}) }).toString();
   const { data, error, loading } = useCached<{ bills: Bill[] }>(`/api/bills?${query}`);
-  const sheetUrl = useCached<HomeResponse>("/api/home").data?.sheetUrl;
+  const sheetUrl = useCached<HomeResponse>(`/api/home?company=${company}`).data?.sheetUrl;
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
@@ -53,7 +55,7 @@ function BillsView() {
             </a>
           )}
           <a
-            href={`/api/export${month ? `?month=${month}` : ""}`}
+            href={`/api/export?company=${company}${month ? `&month=${month}` : ""}`}
             className="inline-flex h-11 items-center gap-2 rounded-xl border border-line-strong bg-paper px-4 font-semibold text-ink shadow-card hover:text-clay-dark"
           >
             <Download className="size-4" /> Excel

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { HomeResponse } from "@/lib/client/types";
+import { useCompany } from "@/lib/client/company";
 import { useCached } from "@/lib/client/useCached";
 import { useScanFlow } from "@/lib/client/useScanFlow";
 import { PickStep } from "@/components/scan/PickStep";
@@ -14,12 +15,13 @@ import { usePhotoInputs } from "@/components/scan/usePhotoInputs";
 import { Button } from "@/components/ui/Button";
 
 export default function ScanPage() {
-  const flow = useScanFlow();
+  const { company } = useCompany();
+  const flow = useScanFlow(company);
   const { state } = flow;
   const { inputs, openCamera, openGallery } = usePhotoInputs(flow.addFiles);
 
   // Credits come with the home data; after each scan the server sends fresh numbers.
-  const home = useCached<HomeResponse>("/api/home");
+  const home = useCached<HomeResponse>(`/api/home?company=${company}`);
   const { setCredits } = flow;
   useEffect(() => {
     if (home.data?.credits) setCredits((c) => c ?? home.data!.credits);
@@ -108,8 +110,9 @@ export default function ScanPage() {
           saving={flow.saving}
           saveError={flow.saveError}
           queueLeft={flow.queueLeft}
-          onSave={(type, data) => flow.save(type, data, state.photo)}
+          onSave={(type, data, billCompany) => flow.save(type, data, billCompany, state.photo)}
           onChangeType={(type) => flow.setState({ ...state, draft: { ...state.draft, type, unsure: [] } })}
+          activeCompany={company}
           onCancel={flow.reset}
         />
       );

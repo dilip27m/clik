@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { BILL_TYPES, BILL_TYPE_ORDER, formatMonth } from "@/lib/bill-types";
+import { getCompany } from "@/lib/companies";
 import { listBills } from "@/lib/db";
 
 // Excel copy of the bills — one sheet per bill type — for one month or everything.
 export async function GET(req: NextRequest) {
   const month = req.nextUrl.searchParams.get("month") || undefined;
+  const company = getCompany(req.nextUrl.searchParams.get("company"));
   const wb = new ExcelJS.Workbook();
   for (const type of BILL_TYPE_ORDER) {
     const def = BILL_TYPES[type];
@@ -20,14 +22,14 @@ export async function GET(req: NextRequest) {
       c.font = { bold: true, color: { argb: "FFFFFFFF" } };
       c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF8F3F1D" } };
     });
-    for (const bill of await listBills({ type, month, limit: 2000 })) {
+    for (const bill of await listBills({ company: company.id, type, month, limit: 2000 })) {
       const row: Record<string, unknown> = { ...bill.data };
       if (bill.date) row.date = new Date(bill.date + "T00:00:00");
       ws.addRow(row);
     }
   }
   const buf = await wb.xlsx.writeBuffer();
-  const name = `Bills ${month ? formatMonth(month) : "All"}.xlsx`;
+  const name = `${company.short} Bills ${month ? formatMonth(month) : "All"}.xlsx`;
   return new Response(buf, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

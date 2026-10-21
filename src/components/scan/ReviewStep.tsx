@@ -10,6 +10,8 @@ import { BillPhoto } from "@/components/bill/BillPhoto";
 import { BillTypeChip } from "@/components/bill/billStyle";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Notice";
+import { getCompany } from "@/lib/companies";
+import { CompanyPicker } from "@/components/CompanyPicker";
 import { TypeChooser } from "./TypeChooser";
 
 interface Props {
@@ -19,14 +21,16 @@ interface Props {
   saving: boolean;
   saveError: { message: string; existingId?: number } | null;
   queueLeft: number;
-  onSave: (type: BillType, data: BillData) => void;
+  onSave: (type: BillType, data: BillData, company: string) => void;
+  activeCompany: string;
   onChangeType: (t: BillType) => void;
   onCancel: () => void;
 }
 
 // Photo next to the read values — the person checks and saves.
-export function ReviewStep({ photo, draft, existingId, saving, saveError, queueLeft, onSave, onChangeType, onCancel }: Props) {
+export function ReviewStep({ photo, draft, existingId, saving, saveError, queueLeft, onSave, onChangeType, onCancel, activeCompany }: Props) {
   const [choosingType, setChoosingType] = useState(false);
+  const [company, setCompany] = useState(draft.company || activeCompany);
   const dupId = saveError?.existingId ?? existingId;
 
   return (
@@ -74,6 +78,16 @@ export function ReviewStep({ photo, draft, existingId, saving, saveError, queueL
           ) : (
             saveError && <Notice tone="error" title="Not saved">{saveError.message}</Notice>
           )}
+          <div className="rounded-2xl border border-line bg-paper p-4">
+            <p className="mb-2 text-[0.95rem] font-medium text-ink-soft">
+              Which company is this bill for?
+              {draft.company && <span className="ml-1 text-leaf">(found on the bill)</span>}
+            </p>
+            <CompanyPicker value={company} onChange={setCompany} />
+            {company !== activeCompany && (
+              <p className="mt-2 text-sm text-[#7a5308]">It will be saved under {getCompany(company).name}, not the one selected above.</p>
+            )}
+          </div>
           <BillForm
             key={draft.type}
             type={draft.type}
@@ -81,7 +95,7 @@ export function ReviewStep({ photo, draft, existingId, saving, saveError, queueL
             unsure={draft.unsure}
             saving={saving}
             submitLabel="Save bill"
-            onSubmit={(data) => onSave(draft.type, data)}
+            onSubmit={(data) => onSave(draft.type, data, company)}
             footer={
               <Button type="button" variant="ghost" full onClick={onCancel}>
                 Cancel

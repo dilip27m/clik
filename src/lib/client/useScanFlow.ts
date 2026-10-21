@@ -20,6 +20,7 @@ export type ScanStep =
 
 export interface Draft {
   type: BillType;
+  company?: string | null; // detected from the bill
   data: BillData;
   unsure: string[];
 }
@@ -27,7 +28,7 @@ export interface Draft {
 // The whole "photo → read → check → save" journey for one bill at a time.
 // Several photos picked on a computer wait in a queue; each is read only
 // after the previous one is saved, so every bill is checked by a person.
-export function useScanFlow() {
+export function useScanFlow(company: string) {
   const [state, setState] = useState<ScanStep>({ step: "pick" });
   const [queue, setQueue] = useState<File[]>([]);
   const [credits, setCredits] = useState<Credits | undefined>();
@@ -37,10 +38,15 @@ export function useScanFlow() {
   const read = useCallback(async (photo: PreparedPhoto) => {
     setState({ step: "reading", photo });
     try {
-      const res = await api<ExtractResponse>("/api/extract", { body: { image: photo.base64, mime: "image/jpeg" } });
+      const res = await api<ExtractResponse>("/api/extract", { body: { image: photo.base64, mime: "image/jpeg", company } });
       if (res.credits) setCredits(res.credits);
       if (res.ok) {
-        setState({ step: "review", photo, draft: { type: res.type, data: res.data, unsure: res.unsure }, existingId: res.existingId });
+        setState({
+          step: "review",
+          photo,
+          draft: { type: res.type, company: res.company, data: res.data, unsure: res.unsure },
+          existingId: res.existingId,
+        });
       } else if (res.retake) {
         setState({ step: "retake", photo, reason: res.reason, draft: res.draft && { ...res.draft } });
       } else {
@@ -49,7 +55,7 @@ export function useScanFlow() {
     } catch (e) {
       setState({ step: "failed", photo, reason: e instanceof Error ? e.message : "Could not read the bill." });
     }
-  }, []);
+  }, [company]);
 
   const start = useCallback(
     async (file: File) => {
@@ -85,11 +91,13 @@ export function useScanFlow() {
   }, [queue, start]);
 
   const save = useCallback(
-    async (type: BillType, data: BillData, photo?: PreparedPhoto) => {
+    async (type: BillType, data: BillData, billCompany: string, photo?: PreparedPhoto) => {
       setSaving(true);
       setSaveError(null);
       try {
-        const res = await api<{ bill: Bill }>("/api/bills", { body: { type, data, photo: photo?.base64, mime: "image/jpeg" } });
+        const res = await api<{ bill: Bill }>("/api/bills", {
+          body: { type, data, company: billCompany, photo: photo?.base64, mime: "image/jpeg" },
+        });
         setState({ step: "saved", bill: res.bill });
       } catch (e) {
         const existingId = e instanceof ApiError ? (e.body.existingId as number | undefined) : undefined;

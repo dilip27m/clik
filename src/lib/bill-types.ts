@@ -94,8 +94,8 @@ export const BILL_TYPES: Record<BillType, BillTypeDef> = {
   sales_invoice: {
     type: "sales_invoice",
     name: "Sales Bill",
-    fullName: "Sri Lalithha Tax Invoice",
-    hint: "Our sales bill to a buyer · number like 2026-27/28",
+    fullName: "Our Tax Invoice",
+    hint: "Our own sales bill to a buyer · number like 2026-27/28",
     direction: "out",
     sheetTab: "Sales Bills",
     keyField: "invoiceNo",
@@ -126,6 +126,7 @@ export type BillData = Record<string, string | number | null>;
 
 export interface Bill {
   id: number;
+  company: string;
   type: BillType;
   docNo: string;
   date: string;          // YYYY-MM-DD

@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { Building, Lock } from "lucide-react";
 import { api } from "@/lib/client/api";
+import { rememberCompany } from "@/lib/client/company";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Notice";
 
@@ -17,7 +18,8 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/login", { body: { company, password } });
+      const res = await api<{ company: string }>("/api/login", { body: { company, password } });
+      rememberCompany(res.company);
       window.location.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not log in");

@@ -3,11 +3,12 @@ import { SESSION_COOKIE, SESSION_DAYS, checkLogin, createSessionToken } from "@/
 
 export async function POST(req: NextRequest) {
   const { company = "", password = "" } = await req.json().catch(() => ({}));
-  if (!checkLogin(String(company), String(password))) {
+  const companyId = checkLogin(String(company), String(password));
+  if (!companyId) {
     await new Promise((r) => setTimeout(r, 800)); // slow down guessing
     return NextResponse.json({ error: "Company name or password is wrong" }, { status: 401 });
   }
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true, company: companyId });
   res.cookies.set(SESSION_COOKIE, await createSessionToken(), {
     httpOnly: true,
     sameSite: "lax",

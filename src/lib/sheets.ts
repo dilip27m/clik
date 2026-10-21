@@ -1,18 +1,31 @@
 import "server-only";
 import { BILL_TYPES, Bill } from "./bill-types";
+import { COMPANIES, DEFAULT_COMPANY } from "./companies";
 import { getBill, getPhoto, markSyncFailed, markSynced, unsyncedBillIds } from "./db";
 
-function webhookUrl(): string {
-  return (process.env.GOOGLE_SHEETS_WEBHOOK_URL || "").trim();
+// Each company has its own Google Sheet (and its own Apps Script web app):
+//   GOOGLE_SHEETS_WEBHOOK_URL_SLP, GOOGLE_SHEETS_WEBHOOK_URL_RENUKA, …
+// The first company may also use the plain GOOGLE_SHEETS_WEBHOOK_URL.
+function companyEnv(prefix: string, company: string): string {
+  const own = process.env[`${prefix}_${company.toUpperCase()}`];
+  const fallback = company === DEFAULT_COMPANY ? process.env[prefix] : "";
+  return (own || fallback || "").trim();
 }
 
-export function sheetsConfigured(): boolean {
-  return Boolean(webhookUrl());
+const webhookUrl = (company: string) => companyEnv("GOOGLE_SHEETS_WEBHOOK_URL", company);
+
+// Link to open the company's sheet: GOOGLE_SHEET_URL_SLP, GOOGLE_SHEET_URL_RENUKA, …
+export const sheetLink = (company: string) =>
+  companyEnv("GOOGLE_SHEET_URL", company) ||
+  (company === DEFAULT_COMPANY ? process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL || null : null);
+
+export function sheetsConfigured(company: string): boolean {
+  return Boolean(webhookUrl(company));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function post(body: Record<string, unknown>): Promise<any> {
-  const res = await fetch(webhookUrl(), {
+async function post(company: string, body: Record<string, unknown>): Promise<any> {
+  const res = await fetch(webhookUrl(company), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...body, token: process.env.SHEETS_TOKEN || "" }),
@@ -30,15 +43,14 @@ async function post(body: Record<string, unknown>): Promise<any> {
   return json;
 }
 
-// Sends one bill (and its photo, the first time) to the Google Sheet.
+// Sends one bill (and its photo, the first time) to its company's Google Sheet.
 export async function syncBill(id: number): Promise<void> {
-  if (!sheetsConfigured()) return;
   const bill = await getBill(id);
-  if (!bill) return;
+  if (!bill || !sheetsConfigured(bill.company)) return;
   try {
     const def = BILL_TYPES[bill.type];
     const photo = bill.photoUrl ? null : await getPhoto(id);
-    const result = await post({
+    const result = await post(bill.company, {
       action: "upsert",
       tab: def.sheetTab,
       key: bill.docNo,
@@ -58,9 +70,9 @@ export async function syncBill(id: number): Promise<void> {
 }
 
 export async function syncDelete(bill: Bill): Promise<void> {
-  if (!sheetsConfigured()) return;
+  if (!sheetsConfigured(bill.company)) return;
   try {
-    await post({ action: "delete", tab: BILL_TYPES[bill.type].sheetTab, key: bill.docNo });
+    await post(bill.company, { action: "delete", tab: BILL_TYPES[bill.type].sheetTab, key: bill.docNo });
   } catch (e) {
     console.warn(`[sheets] delete ${bill.docNo} failed:`, e instanceof Error ? e.message : e);
   }
@@ -68,11 +80,12 @@ export async function syncDelete(bill: Bill): Promise<void> {
 
 // Picks up bills whose sync failed earlier (e.g. no internet) and tries again.
 export async function retryUnsynced(): Promise<void> {
-  if (!sheetsConfigured()) return;
-  for (const id of await unsyncedBillIds(3)) await syncBill(id);
+  const connected = COMPANIES.map((c) => c.id).filter(sheetsConfigured);
+  if (!connected.length) return;
+  for (const id of await unsyncedBillIds(connected, 3)) await syncBill(id);
 }
 
-export async function pingSheet(): Promise<string> {
-  const json = await post({ action: "ping" });
+export async function pingSheet(company: string): Promise<string> {
+  const json = await post(company, { action: "ping" });
   return json.message;
 }
