@@ -1,42 +1,76 @@
 @import "tailwindcss";
 
-:root {
-  --background: #000000;
-  --foreground: #ededed;
+/* Warm "ledger book" palette: cream paper, terracotta ink, gold accents. */
+@theme {
+  --color-cream: #f8f1e6;
+  --color-paper: #fffcf7;
+  --color-ink: #2b2118;
+  --color-ink-soft: #6f604f;
+  --color-ink-faint: #a39380;
+  --color-line: #eadfcf;
+  --color-line-strong: #dccbb3;
+
+  --color-clay: #b5552b;
+  --color-clay-dark: #8f3f1d;
+  --color-clay-soft: #f6e3d6;
+
+  --color-gold: #b07812;
+  --color-gold-soft: #fbefd3;
+  --color-leaf: #4f7a3a;
+  --color-leaf-soft: #e6efdc;
+  --color-plum: #7a3e5c;
+  --color-plum-soft: #f3e2ea;
+  --color-rust: #b23a2e;
+  --color-rust-soft: #f8e0dc;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), Georgia, serif;
+
+  --shadow-card: 0 1px 2px rgb(43 33 24 / 0.05), 0 4px 16px -6px rgb(43 33 24 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(143 63 29 / 0.12), 0 12px 28px -10px rgb(143 63 29 / 0.35);
+}
+
+html {
+  font-size: 17px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  background-color: #000000;
-  color: #ededed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  letter-spacing: -0.011em;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "cv11" 1;
 }
 
-code, pre, kbd, .font-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+::selection {
+  background: var(--color-clay-soft);
 }
 
-/* Subtle Vercel dot background */
-.bg-grid-pattern {
-  background-size: 24px 24px;
-  background-image: radial-gradient(circle, #222222 1px, transparent 1px);
+input,
+select,
+textarea,
+button {
+  font: inherit;
 }
 
-/* Minimalist scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Gentle shimmer used while the AI reads a bill. */
+@keyframes scan-line {
+  0% { transform: translateY(-10%); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateY(1000%); opacity: 0; }
+}
+.animate-scan-line {
+  animation: scan-line 2.2s ease-in-out infinite;
 }
 
-::-webkit-scrollbar-track {
-  background: #000000;
+@keyframes rise {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.animate-rise {
+  animation: rise 0.25s ease-out both;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }

@@ -1,58 +1,36 @@
 import type { Metadata, Viewport } from "next";
+import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap", weight: ["500", "600", "700"] });
+
 export const metadata: Metadata = {
-  title: "AP Mines Portal | Transit Form OCR & Master Ledger",
-  description: "Automated OCR extraction, live Google Sheets sync, and Excel export for AP Mines and Geology Transit Forms and Tax Invoices",
+  title: "Bill Book · Sri Lalithha Pulverisers",
+  description: "Scan bills, check them, and keep the Google Sheet up to date.",
   manifest: "/manifest.json",
   icons: {
-    icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
-    ],
-    apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-    ],
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "AP Mines",
-  },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Bill Book" },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#050505",
+  themeColor: "#f8f1e6",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5,
+  viewportFit: "cover",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark h-full antialiased">
-      <head>
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-      </head>
-      <body className="min-h-full flex flex-col bg-[#050505] text-[#f4f4f5] font-sans selection:bg-neutral-800 selection:text-white">
+    <html lang="en" className={`${inter.variable} ${fraunces.variable} h-full antialiased`}>
+      <body className="min-h-full">
         {children}
         <script
           dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(function(reg) {
-                    console.log('[PWA] ServiceWorker registered with scope:', reg.scope);
-                  }).catch(function(err) {
-                    console.warn('[PWA] ServiceWorker registration failed:', err);
-                  });
-                });
-              }
-            `,
+            __html: `if('serviceWorker' in navigator&&location.protocol==='https:'){addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}`,
           }}
         />
       </body>

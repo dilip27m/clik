@@ -1,11 +1,11 @@
 {
-  "name": "AP Mines Transit & Invoice Portal",
-  "short_name": "AP Mines",
-  "description": "OCR Extraction & Master Ledger for AP Mines Department Transit Passes and Tax Invoices",
+  "name": "Bill Book \u2014 Sri Lalithha Pulverisers",
+  "short_name": "Bill Book",
+  "description": "Scan bills, check them, and keep the Google Sheet up to date.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#050505",
-  "theme_color": "#050505",
+  "background_color": "#f8f1e6",
+  "theme_color": "#f8f1e6",
   "orientation": "portrait-primary",
   "icons": [
     {
