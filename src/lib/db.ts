@@ -1,7 +1,7 @@
 import "server-only";
 import { Pool as PgPool, types } from "pg";
 import { Pool as NeonPool, types as neonTypes } from "@neondatabase/serverless";
-import { Bill, BillData, BillType, summarize } from "./bill-types";
+import { Bill, BillData, BillType, Timings, summarize } from "./bill-types";
 
 // Return DATE columns as plain "YYYY-MM-DD" strings and NUMERIC as numbers.
 for (const t of [types, neonTypes]) {
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS bills (
 );
 -- Each bill belongs to one company; bill numbers are unique per company.
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT 'slp';
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS timings JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE bills DROP CONSTRAINT IF EXISTS bills_type_doc_no_key;
 CREATE UNIQUE INDEX IF NOT EXISTS bills_company_type_doc ON bills (company, type, doc_no);
 CREATE INDEX IF NOT EXISTS bills_type_date ON bills (type, bill_date DESC);
@@ -85,7 +86,7 @@ async function db(): Promise<Pool> {
 
 const SELECT = `
   SELECT b.id, b.company, b.type, b.doc_no, b.bill_date, b.party, b.vehicle_no, b.qty, b.amount, b.data,
-         b.photo_url, b.sheet_status, b.created_at,
+         b.photo_url, b.sheet_status, b.created_at, b.timings,
          (b.photo_url IS NOT NULL OR EXISTS (SELECT 1 FROM bill_photos p WHERE p.bill_id = b.id)) AS has_photo
   FROM bills b`;
 
@@ -105,6 +106,7 @@ function toBill(r: any): Bill {
     hasPhoto: Boolean(r.has_photo),
     photoUrl: r.photo_url,
     sheetStatus: r.sheet_status,
+    timings: r.timings ?? {},
     createdAt: new Date(r.created_at).toISOString(),
   };
 }
@@ -166,15 +168,16 @@ export async function createBill(
   company: string,
   type: BillType,
   data: BillData,
-  photo?: { mime: string; data: Buffer }
+  photo?: { mime: string; data: Buffer },
+  timings: Timings = {}
 ): Promise<Bill> {
   const pool = await db();
   const s = summarize(type, data);
   // Bill + photo in one statement (one round trip to the database).
   const { rows } = await pool.query(
     `WITH b AS (
-       INSERT INTO bills (type, doc_no, bill_date, party, vehicle_no, qty, amount, data, company)
-       VALUES ($1, $2, NULLIF($3, '')::date, $4, $5, $6, $7, $8, $11)
+       INSERT INTO bills (type, doc_no, bill_date, party, vehicle_no, qty, amount, data, company, timings)
+       VALUES ($1, $2, NULLIF($3, '')::date, $4, $5, $6, $7, $8, $11, $12)
        ON CONFLICT (company, type, doc_no) DO NOTHING
        RETURNING *
      ), p AS (
@@ -182,7 +185,7 @@ export async function createBill(
        SELECT id, $9, $10 FROM b WHERE $10::bytea IS NOT NULL
      )
      SELECT b.*, ($10::bytea IS NOT NULL) AS has_photo FROM b`,
-    [type, s.docNo, s.date, s.party, s.vehicleNo, s.qty, s.amount, data, photo?.mime ?? null, photo?.data ?? null, company]
+    [type, s.docNo, s.date, s.party, s.vehicleNo, s.qty, s.amount, data, photo?.mime ?? null, photo?.data ?? null, company, timings]
   );
   if (!rows[0]) throw new DuplicateBillError((await findBill(company, type, s.docNo)) ?? 0);
   return toBill(rows[0]);
@@ -208,6 +211,17 @@ export async function updateBill(id: number, data: BillData, company?: string): 
   return getBill(id);
 }
 
+export async function allBillTimings(): Promise<Pick<Bill, "type" | "timings">[]> {
+  const pool = await db();
+  const { rows } = await pool.query(`SELECT type, timings FROM bills`);
+  return rows.map((r) => ({ type: r.type, timings: r.timings ?? {} }));
+}
+
+export async function saveDbTime(id: number, dbMs: number) {
+  const pool = await db();
+  await pool.query(`UPDATE bills SET timings = timings || jsonb_build_object('dbMs', $2::int) WHERE id = $1`, [id, dbMs]);
+}
+
 export async function deleteBill(id: number): Promise<Bill | null> {
   const pool = await db();
   const bill = await getBill(id);
@@ -222,11 +236,13 @@ export async function getPhoto(id: number): Promise<{ mime: string; data: Buffer
   return rows[0] ? { mime: rows[0].mime, data: rows[0].data } : null;
 }
 
-export async function markSynced(id: number, photoUrl: string | null) {
+export async function markSynced(id: number, photoUrl: string | null, sheetMs?: number) {
   const pool = await db();
   await pool.query(
-    `UPDATE bills SET sheet_status = 'synced', photo_url = COALESCE($2, photo_url) WHERE id = $1`,
-    [id, photoUrl]
+    `UPDATE bills SET sheet_status = 'synced', photo_url = COALESCE($2, photo_url),
+       timings = CASE WHEN $3::int IS NULL THEN timings ELSE timings || jsonb_build_object('sheetMs', $3::int) END
+     WHERE id = $1`,
+    [id, photoUrl, sheetMs ?? null]
   );
   // Once the photo lives in Google Drive we no longer need our copy.
   if (photoUrl) await pool.query(`DELETE FROM bill_photos WHERE bill_id = $1`, [id]);

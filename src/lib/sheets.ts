@@ -50,6 +50,7 @@ export async function syncBill(id: number): Promise<void> {
   try {
     const def = BILL_TYPES[bill.type];
     const photo = bill.photoUrl ? null : await getPhoto(id);
+    const started = Date.now();
     const result = await post(bill.company, {
       action: "upsert",
       tab: def.sheetTab,
@@ -62,7 +63,8 @@ export async function syncBill(id: number): Promise<void> {
         name: `${def.name} ${bill.docNo.replace(/[\\/]/g, "-")}.jpg`,
       },
     });
-    await markSynced(id, result.photoUrl || null);
+    const firstSync = bill.timings.sheetMs === undefined;
+    await markSynced(id, result.photoUrl || null, firstSync ? Date.now() - started : undefined);
   } catch (e) {
     console.warn(`[sheets] bill ${id} failed:`, e instanceof Error ? e.message : e);
     await markSyncFailed(id);

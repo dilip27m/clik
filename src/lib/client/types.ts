@@ -21,4 +21,4 @@ export interface Extracted {
 export type ExtractResponse = (
   | ({ ok: true } & Extracted)
   | { ok: false; reason: string; retake?: boolean; draft?: Extracted; outOfCredits?: boolean; resetsAt?: string }
-) & { existingId?: number | null; credits?: Credits };
+) & { existingId?: number | null; credits?: Credits; aiMs?: number };

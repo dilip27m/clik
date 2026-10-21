@@ -13,7 +13,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "No photo received. Please try again." }, { status: 400 });
   }
   const base64 = image.replace(/^data:[^;]+;base64,/, "");
+  const aiStart = Date.now();
   const result = await extractBill(base64, typeof mime === "string" ? mime : "image/jpeg");
+  const aiMs = Date.now() - aiStart;
   const credits = await creditsLeft();
 
   // The company printed on the bill wins; otherwise the one selected in the app.
@@ -21,5 +23,5 @@ export async function POST(req: NextRequest) {
   if (found) found.company = found.company ?? getCompany(active).id;
   const docNo = found ? String(found.data[BILL_TYPES[found.type].keyField] ?? "") : "";
   const existingId = found && docNo ? await findBill(found.company!, found.type, docNo).catch(() => null) : null;
-  return NextResponse.json({ ...result, existingId, credits });
+  return NextResponse.json({ ...result, existingId, credits, aiMs });
 }
