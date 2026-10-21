@@ -2,5 +2,5 @@
 
 // The Bill Book mark (public/logo.svg).
 export function Logo({ className = "size-10" }: { className?: string }) {
-  return <img src="/logo.svg" alt="Bill Book" className={`shrink-0 drop-shadow-sm ${className}`} />;
+  return <img src="/logo.svg?v=2" alt="Bill Book" className={`shrink-0 drop-shadow-sm ${className}`} />;
 }

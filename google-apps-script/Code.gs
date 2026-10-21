@@ -33,14 +33,17 @@ var DATE = 'dd-mmm-yyyy';
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  // Only one change at a time; answer with a clear error instead of a crash page if busy.
+  if (!lock.tryLock(60000)) return reply({ success: false, error: "Sheet is busy, try again" });
   try {
     var data = JSON.parse(e.postData.contents);
     if (TOKEN && data.token !== TOKEN) return reply({ success: false, error: "Wrong token" });
 
-    if (data.action === "ping") return reply({ success: true, message: "Connected to " + SpreadsheetApp.getActive().getName() });
+    if (data.action === "ping") return reply({ success: true, message: "Connected to " + SpreadsheetApp.getActive().getName(), version: 2 });
     if (data.action === "upsert") return reply(upsert(data));
     if (data.action === "delete") return reply(removeRow(data));
+    if (data.action === "list") return reply(listRows(data));
+    if (data.action === "bulkUpsert") return reply(bulkUpsert(data));
     return reply({ success: false, error: "Unknown action" });
   } catch (err) {
     return reply({ success: false, error: String(err) });
@@ -87,6 +90,76 @@ function removeRow(data) {
   if (rowIndex !== -1) sheet.deleteRow(rowIndex);
   rebuildSummary();
   return { success: true, deleted: rowIndex !== -1 };
+}
+
+// data = { tabs: [names] } → every row of those tabs, for the app's Sync button.
+// Dates come back as "yyyy-MM-dd"; the Photo column gives the Drive link.
+function listRows(data) {
+  var ss = SpreadsheetApp.getActive();
+  var tz = ss.getSpreadsheetTimeZone();
+  var out = {};
+  data.tabs.forEach(function (name) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet || sheet.getLastRow() < 2) { out[name] = { headers: [], rows: [] }; return; }
+    var range = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
+    var values = range.getValues();
+    var formulas = range.getFormulas();
+    var headers = values[0].map(String);
+    var photoCol = headers.indexOf("Photo");
+    var rows = [];
+    for (var r = 1; r < values.length; r++) {
+      if (!String(values[r][0]).trim()) continue;
+      rows.push(values[r].map(function (v, c) {
+        if (c === photoCol) {
+          var m = String(formulas[r][c]).match(/HYPERLINK\("([^"]+)"/);
+          return m ? m[1] : "";
+        }
+        return v instanceof Date ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : v;
+      }));
+    }
+    out[name] = { headers: headers, rows: rows };
+  });
+  return { success: true, tabs: out };
+}
+
+// data = { items: [{ tab, columns, key, values }] } → many rows in one go,
+// then one sort per tab and one summary rebuild (much faster than one by one).
+function bulkUpsert(data) {
+  var byTab = {};
+  data.items.forEach(function (it) { (byTab[it.tab] = byTab[it.tab] || []).push(it); });
+  var added = 0, updated = 0;
+  Object.keys(byTab).forEach(function (tab) {
+    var items = byTab[tab];
+    var columns = items[0].columns;
+    var sheet = ensureTab(tab, columns);
+    var last = sheet.getLastRow();
+    var index = {};
+    if (last >= 2) {
+      sheet.getRange(2, 1, last - 1, 1).getDisplayValues().forEach(function (r, i) {
+        index[String(r[0]).trim().toUpperCase()] = i + 2;
+      });
+    }
+    var newRows = [];
+    items.forEach(function (it) {
+      var values = it.values.map(function (v, i) { return toCell(v, columns[i].kind); });
+      var row = index[String(it.key).trim().toUpperCase()];
+      if (row) {
+        sheet.getRange(row, 1, 1, values.length).setValues([values]);
+        updated++;
+      } else {
+        newRows.push(values);
+      }
+    });
+    if (newRows.length) {
+      var short = sheet.getLastRow() + newRows.length - sheet.getMaxRows();
+      if (short > 0) sheet.insertRowsAfter(sheet.getMaxRows(), short);
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, columns.length).setValues(newRows);
+      added += newRows.length;
+    }
+    sortByDate(sheet, columns);
+  });
+  rebuildSummary();
+  return { success: true, added: added, updated: updated };
 }
 
 function findRow(sheet, key) {

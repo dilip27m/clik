@@ -9,6 +9,7 @@ import { useCached } from "@/lib/client/useCached";
 import type { HomeResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
 import { MonthSelect } from "@/components/bills/MonthSelect";
+import { SyncButton } from "@/components/bills/SyncButton";
 import { Totals } from "@/components/bills/Totals";
 import { TypeTabs } from "@/components/bills/TypeTabs";
 import { Card } from "@/components/ui/Card";
@@ -30,7 +31,7 @@ function BillsView() {
 
   const { company } = useCompany();
   const query = new URLSearchParams({ company, type, month, ...(q ? { q } : {}) }).toString();
-  const { data, error, loading } = useCached<{ bills: Bill[] }>(`/api/bills?${query}`);
+  const { data, error, loading, reload } = useCached<{ bills: Bill[] }>(`/api/bills?${query}`);
   const sheetUrl = useCached<HomeResponse>(`/api/home?company=${company}`).data?.sheetUrl;
 
   const setParam = (key: string, value: string) => {
@@ -43,7 +44,8 @@ function BillsView() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="font-display text-3xl font-semibold text-ink">Bills</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
+          <SyncButton company={company} onDone={reload} />
           {sheetUrl && (
             <a
               href={sheetUrl}

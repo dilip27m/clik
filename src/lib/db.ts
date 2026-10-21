@@ -25,11 +25,31 @@ function getPool(): Pool {
   if (!globalForDb.pool) {
     const url = connectionString();
     const isLocal = /localhost|127\.0\.0\.1/.test(url);
-    globalForDb.pool = isLocal
+    const pool = isLocal
       ? new PgPool({ connectionString: url, max: 5 })
       : (new NeonPool({ connectionString: url, max: 5, idleTimeoutMillis: 30000 }) as unknown as Pool);
+    // A dropped idle connection must not crash the server.
+    pool.on("error", (e) => console.warn("[db] connection dropped:", e?.message ?? e));
+    // Neon can drop the connection while it wakes up; try such a query once more.
+    const query = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>;
+    (pool as unknown as { query: unknown }).query = async (...args: unknown[]) => {
+      try {
+        return await query(...args);
+      } catch (e) {
+        if (!isConnectionError(e)) throw e;
+        console.warn("[db] retrying after connection error");
+        return query(...args);
+      }
+    };
+    globalForDb.pool = pool;
   }
   return globalForDb.pool;
+}
+
+function isConnectionError(e: unknown): boolean {
+  if (e && typeof e === "object" && "type" in e && (e as { type?: string }).type === "error" && !("code" in e)) return true; // WebSocket ErrorEvent
+  const msg = e instanceof Error ? e.message : String(e);
+  return /Connection terminated|ECONNRESET|socket hang up|WebSocket|timeout exceeded when trying to connect|ETIMEDOUT/i.test(msg);
 }
 
 const SCHEMA = `
@@ -233,6 +253,12 @@ export async function markSynced(id: number, photoUrl: string | null) {
   if (photoUrl) await pool.query(`DELETE FROM bill_photos WHERE bill_id = $1`, [id]);
 }
 
+export async function markManySynced(ids: number[]) {
+  if (!ids.length) return;
+  const pool = await db();
+  await pool.query(`UPDATE bills SET sheet_status = 'synced' WHERE id = ANY($1::bigint[])`, [ids]);
+}
+
 export async function markSyncFailed(id: number) {
   const pool = await db();
   await pool.query(`UPDATE bills SET sheet_status = 'failed' WHERE id = $1`, [id]);
@@ -273,32 +299,22 @@ export async function setModelExhausted(day: string, model: string) {
   );
 }
 
-// Month (YYYY-MM) of the bill saved most recently, so Home opens on the month
-// the user is working on — bills are often entered weeks after their date.
-export async function latestBillMonth(company: string): Promise<string | null> {
-  const pool = await db();
-  const { rows } = await pool.query(
-    `SELECT to_char(bill_date, 'YYYY-MM') AS month FROM bills
-     WHERE company = $1 AND bill_date IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
-    [company]
-  );
-  return rows[0]?.month ?? null;
-}
-
 export interface MonthStats {
   month: string;
   byType: Record<BillType, { count: number; qty: number; amount: number; gst: number }>;
 }
 
+// month "" means all months.
 export async function monthStats(company: string, month: string): Promise<MonthStats> {
   const pool = await db();
+  const all = !/^\d{4}-\d{2}$/.test(month);
   const { rows } = await pool.query(
     `SELECT type, count(*)::int AS count, COALESCE(sum(qty), 0) AS qty, COALESCE(sum(amount), 0) AS amount,
             COALESCE(sum(COALESCE((data->>'cgst')::numeric, 0) + COALESCE((data->>'sgst')::numeric, 0)), 0) AS gst
      FROM bills
-     WHERE company = $2 AND bill_date >= $1::date AND bill_date < ($1::date + interval '1 month')
+     WHERE company = $2 AND ($1::date IS NULL OR (bill_date >= $1::date AND bill_date < ($1::date + interval '1 month')))
      GROUP BY type`,
-    [`${month}-01`, company]
+    [all ? null : `${month}-01`, company]
   );
   const empty = { count: 0, qty: 0, amount: 0, gst: 0 };
   const byType = {
@@ -310,7 +326,7 @@ export async function monthStats(company: string, month: string): Promise<MonthS
   for (const r of rows) {
     if (r.type in byType) byType[r.type as BillType] = { count: r.count, qty: r.qty, amount: r.amount, gst: r.gst };
   }
-  return { month, byType };
+  return { month: all ? "" : month, byType };
 }
 
 // Every APMDC bill should have a Transit Form for the same truck, day and quantity.
