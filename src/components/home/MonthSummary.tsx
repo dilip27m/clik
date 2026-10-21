@@ -8,20 +8,20 @@ export function MonthSummary({ stats }: { stats?: HomeResponse["stats"] }) {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {BILL_TYPE_ORDER.map((type) => (
-        <Tile key={type} type={type} t={stats?.byType[type]} />
+        <Tile key={type} type={type} t={stats?.byType[type]} month={stats?.month} />
       ))}
     </div>
   );
 }
 
-function Tile({ type, t }: { type: BillType; t?: { count: number; qty: number; amount: number } }) {
+function Tile({ type, t, month }: { type: BillType; t?: { count: number; qty: number; amount: number }; month?: string }) {
   const def = BILL_TYPES[type];
   const style = BILL_STYLE[type];
   const Icon = style.icon;
   const main = def.amountField ? formatINR(t?.amount ?? 0, 0) : formatQty(t?.qty ?? 0);
   const sub = def.amountField ? formatQty(t?.qty ?? 0) : null;
   return (
-    <Link href={`/bills?type=${type}`} className="rounded-2xl border border-line bg-paper p-4 shadow-card transition hover:border-clay/30">
+    <Link href={`/bills?type=${type}${month ? `&month=${month}` : ""}`} className="rounded-2xl border border-line bg-paper p-4 shadow-card transition hover:border-clay/30">
       <div className="flex items-center justify-between">
         <span className={`grid size-9 place-items-center rounded-xl ${style.chip}`}>
           <Icon className="size-5" />
