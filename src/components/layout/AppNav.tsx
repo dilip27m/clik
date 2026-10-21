@@ -6,6 +6,7 @@ import { FolderOpen, House, LogOut, ScanLine } from "lucide-react";
 import { useCompany } from "@/lib/client/company";
 import { clearCache } from "@/lib/client/useCached";
 import { CompanyPicker } from "@/components/CompanyPicker";
+import { Logo } from "@/components/Logo";
 
 const LINKS = [
   { href: "/", label: "Home", icon: House },
@@ -32,9 +33,7 @@ export function AppNav() {
       <header className="sticky top-0 z-30 border-b border-line bg-cream/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4">
           <Link href="/" className="flex min-w-0 items-center gap-2.5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-clay font-display text-lg font-bold text-white shadow-lift">
-              {info.name.charAt(0)}
-            </span>
+            <Logo className="size-10" />
             <span className="min-w-0 leading-tight">
               <span className="block font-display text-lg font-semibold text-ink">Bill Book</span>
               <span className="block truncate text-xs text-ink-soft">{info.name}</span>

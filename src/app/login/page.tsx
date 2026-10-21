@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { Building, Lock } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { rememberCompany } from "@/lib/client/company";
+import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Notice";
 
@@ -34,7 +35,7 @@ export default function LoginPage() {
     <main className="grid min-h-dvh place-items-center bg-[radial-gradient(90%_60%_at_50%_0%,#f6e3d6_0%,transparent_70%)] px-4 py-10">
       <div className="w-full max-w-sm animate-rise">
         <div className="mb-8 text-center">
-          <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-clay font-display text-3xl font-bold text-white shadow-lift">B</span>
+          <Logo className="mx-auto size-20" />
           <h1 className="mt-4 font-display text-3xl font-semibold text-ink">Bill Book</h1>
           <p className="mt-1 text-ink-soft">Scan bills. Check them. Done.</p>
         </div>
