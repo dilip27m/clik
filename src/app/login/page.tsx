@@ -1,15 +1,14 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Building, Lock } from "lucide-react";
+import { Lock, User } from "lucide-react";
 import { api } from "@/lib/client/api";
-import { rememberCompany } from "@/lib/client/company";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Notice";
 
 export default function LoginPage() {
-  const [company, setCompany] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -19,8 +18,7 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ company: string }>("/api/login", { body: { company, password } });
-      rememberCompany(res.company);
+      await api("/api/login", { body: { username, password } });
       window.location.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not log in");
@@ -41,10 +39,18 @@ export default function LoginPage() {
         </div>
         <form onSubmit={submit} className="space-y-4 rounded-3xl border border-line bg-paper p-6 shadow-card">
           <label className="block">
-            <span className="mb-1.5 block font-medium text-ink-soft">Company name</span>
+            <span className="mb-1.5 block font-medium text-ink-soft">User name</span>
             <span className="relative block">
-              <Building className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-faint" />
-              <input value={company} onChange={(e) => setCompany(e.target.value)} autoComplete="organization" required className={input} />
+              <User className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-faint" />
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                autoCapitalize="none"
+                placeholder="lalithha"
+                required
+                className={input}
+              />
             </span>
           </label>
           <label className="block">
@@ -64,7 +70,7 @@ export default function LoginPage() {
             </span>
           </label>
           {error && <Notice tone="error">{error}</Notice>}
-          <Button type="submit" size="lg" full loading={busy} disabled={password.length !== 4 || !company.trim()}>
+          <Button type="submit" size="lg" full loading={busy} disabled={password.length !== 4 || !username.trim()}>
             Open Bill Book
           </Button>
         </form>

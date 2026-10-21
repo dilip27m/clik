@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, SESSION_DAYS, checkLogin, createSessionToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const { company = "", password = "" } = await req.json().catch(() => ({}));
-  const companyId = checkLogin(String(company), String(password));
-  if (!companyId) {
+  const { username = "", password = "" } = await req.json().catch(() => ({}));
+  if (!checkLogin(String(username), String(password))) {
     await new Promise((r) => setTimeout(r, 800)); // slow down guessing
-    return NextResponse.json({ error: "Company name or password is wrong" }, { status: 401 });
+    return NextResponse.json({ error: "User name or password is wrong" }, { status: 401 });
   }
-  const res = NextResponse.json({ ok: true, company: companyId });
+  const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, await createSessionToken(), {
     httpOnly: true,
     sameSite: "lax",

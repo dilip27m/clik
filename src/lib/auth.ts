@@ -1,6 +1,4 @@
-import { COMPANIES } from "./companies";
-
-// Tiny login: company name + 4-digit password, kept in a signed cookie.
+// Tiny login: user name + 4-digit password, kept in a signed cookie.
 // Uses Web Crypto so it works both in route handlers and in proxy.ts.
 
 export const SESSION_COOKIE = "slp_session";
@@ -32,12 +30,13 @@ export async function isValidSession(token: string | undefined): Promise<boolean
 
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-// One password for the business; either company's name opens the app.
-// Returns the company to start in, or null when the login is wrong.
-export function checkLogin(company: string, password: string): string | null {
+// One login for the business: user name + 4-digit password.
+// Change them with APP_USERNAME / APP_PASSWORD (Vercel → Settings → Environment Variables).
+export const DEFAULT_USERNAME = "lalithha";
+
+export function checkLogin(username: string, password: string): boolean {
+  const wantUser = normalize(process.env.APP_USERNAME || DEFAULT_USERNAME);
   const wantPassword = (process.env.APP_PASSWORD || "").trim();
-  if (!wantPassword || password.trim() !== wantPassword) return null;
-  const typed = normalize(company);
-  const found = COMPANIES.find((c) => normalize(c.name) === typed || normalize(c.short) === typed);
-  return found?.id ?? null;
+  if (!wantPassword) return false;
+  return normalize(username) === wantUser && password.trim() === wantPassword;
 }

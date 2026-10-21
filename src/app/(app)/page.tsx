@@ -10,6 +10,7 @@ import type { HomeResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
 import { BillTypeChip } from "@/components/bill/billStyle";
 import { CreditsBadge } from "@/components/CreditsBadge";
+import { InstallApp } from "@/components/InstallApp";
 import { MonthSelect } from "@/components/bills/MonthSelect";
 import { MonthSummary } from "@/components/home/MonthSummary";
 import { ButtonLink } from "@/components/ui/Button";
@@ -33,6 +34,8 @@ export default function HomePage() {
         <p className="text-ink-soft">{greeting()} 🙏</p>
         <h1 className="font-display text-3xl font-semibold text-ink sm:text-4xl">What bill do you have today?</h1>
       </section>
+
+      <InstallApp />
 
       <Card className="overflow-hidden">
         <div className="bg-[radial-gradient(120%_120%_at_100%_0%,#f6e3d6_0%,transparent_60%)] p-5 sm:p-6">

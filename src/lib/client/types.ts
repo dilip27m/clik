@@ -10,6 +10,12 @@ export interface HomeResponse {
   sheetsConfigured: boolean;
 }
 
+export interface MetaResponse {
+  credits: Credits;
+  sheetUrl: string | null;
+  sheetsConfigured: boolean;
+}
+
 export interface Extracted {
   type: BillType;
   company: string | null;

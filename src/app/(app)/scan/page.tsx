@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { HomeResponse } from "@/lib/client/types";
+import type { MetaResponse } from "@/lib/client/types";
+import { takeSharedPhotos } from "@/lib/client/sharedPhotos";
 import { useCompany } from "@/lib/client/company";
 import { useCached } from "@/lib/client/useCached";
 import { useScanFlow } from "@/lib/client/useScanFlow";
@@ -20,12 +21,21 @@ export default function ScanPage() {
   const { state } = flow;
   const { inputs, openCamera, openGallery } = usePhotoInputs(flow.addFiles);
 
-  // Credits come with the home data; after each scan the server sends fresh numbers.
-  const home = useCached<HomeResponse>(`/api/home?company=${company}`);
-  const { setCredits } = flow;
+  // Credits load with the page; after each scan the server sends fresh numbers.
+  const meta = useCached<MetaResponse>(`/api/meta?company=${company}`);
+  const { setCredits, addFiles } = flow;
   useEffect(() => {
-    if (home.data?.credits) setCredits((c) => c ?? home.data!.credits);
-  }, [home.data, setCredits]);
+    if (meta.data?.credits) setCredits((c) => c ?? meta.data!.credits);
+  }, [meta.data, setCredits]);
+
+  // Opened by "Share → Bill Book" from WhatsApp or Gallery: read the shared photo right away.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has("shared")) return;
+    window.history.replaceState(null, "", "/scan");
+    takeSharedPhotos().then((files) => {
+      if (files.length) addFiles(files);
+    });
+  }, [addFiles]);
 
   const retake = () => {
     flow.reset();

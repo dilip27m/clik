@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f8f1e6" />
+    <title>No internet · Bill Book</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: radial-gradient(90% 60% at 50% 0%, #f6e3d6 0%, #f8f1e6 70%);
+        color: #2b2118;
+        font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      main { max-width: 340px; }
+      img { width: 80px; height: 80px; }
+      h1 { font-family: Georgia, serif; font-size: 28px; margin: 16px 0 8px; }
+      p { color: #6f604f; margin: 0 0 24px; }
+      button {
+        width: 100%;
+        height: 56px;
+        border: 0;
+        border-radius: 16px;
+        background: #b5552b;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        font-size: 18px;
+        box-shadow: 0 12px 28px -10px rgb(143 63 29 / 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/logo.svg?v=2" alt="" />
+      <h1>No internet</h1>
+      <p>Bill Book needs the internet to read and save bills. Check your mobile data or Wi-Fi, then try again.</p>
+      <button onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

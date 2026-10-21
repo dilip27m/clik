@@ -91,12 +91,36 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   exhausted BOOLEAN NOT NULL DEFAULT false,
   PRIMARY KEY (day, model)
 );
+
+-- Speeds up "Recently saved", matching and per-company lists.
+CREATE INDEX IF NOT EXISTS bills_company_created ON bills (company, created_at DESC);
+CREATE INDEX IF NOT EXISTS bills_company_vehicle ON bills (company, type, vehicle_no);
+
+CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
+
+// Bump when SCHEMA changes. A cold server then needs one quick query to see
+// the database is ready, instead of re-running every CREATE/ALTER.
+const SCHEMA_VERSION = "4";
+
+async function ensureSchema(pool: Pool) {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM app_meta WHERE key = 'schema'`);
+    if (rows[0]?.value === SCHEMA_VERSION) return;
+  } catch {
+    // app_meta does not exist yet — fall through and create everything.
+  }
+  await pool.query(SCHEMA);
+  await pool.query(
+    `INSERT INTO app_meta (key, value) VALUES ('schema', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [SCHEMA_VERSION]
+  );
+}
 
 async function db(): Promise<Pool> {
   const pool = getPool();
   if (!globalForDb.ready) {
-    globalForDb.ready = pool.query(SCHEMA).then(() => undefined);
+    globalForDb.ready = ensureSchema(pool);
     globalForDb.ready.catch(() => (globalForDb.ready = undefined));
   }
   await globalForDb.ready;

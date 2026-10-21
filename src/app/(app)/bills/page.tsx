@@ -6,7 +6,7 @@ import { Download, ExternalLink, Search } from "lucide-react";
 import { BILL_TYPES, Bill, BillType, isBillType } from "@/lib/bill-types";
 import { useCompany } from "@/lib/client/company";
 import { useCached } from "@/lib/client/useCached";
-import type { HomeResponse } from "@/lib/client/types";
+import type { MetaResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
 import { MonthSelect } from "@/components/bills/MonthSelect";
 import { SyncButton } from "@/components/bills/SyncButton";
@@ -32,7 +32,7 @@ function BillsView() {
   const { company } = useCompany();
   const query = new URLSearchParams({ company, type, month, ...(q ? { q } : {}) }).toString();
   const { data, error, loading, reload } = useCached<{ bills: Bill[] }>(`/api/bills?${query}`);
-  const sheetUrl = useCached<HomeResponse>(`/api/home?company=${company}`).data?.sheetUrl;
+  const sheetUrl = useCached<MetaResponse>(`/api/meta?company=${company}`).data?.sheetUrl;
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
