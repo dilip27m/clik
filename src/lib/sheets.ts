@@ -24,7 +24,7 @@ export function sheetsConfigured(company: string): boolean {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function post(company: string, body: Record<string, unknown>): Promise<any> {
+export async function post(company: string, body: Record<string, unknown>): Promise<any> {
   const res = await fetch(webhookUrl(company), {
     method: "POST",
     headers: { "Content-Type": "application/json" },

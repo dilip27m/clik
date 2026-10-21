@@ -1,6 +1,6 @@
 // Bill Book service worker: keeps the app's static files on the phone so it
 // opens fast. Pages and data always come fresh from the network.
-const CACHE_NAME = "bill-book-v2";
+const CACHE_NAME = "bill-book-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 

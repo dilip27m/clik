@@ -26,7 +26,7 @@ function Tile({ type, t, month }: { type: BillType; t?: { count: number; qty: nu
         <span className={`grid size-9 place-items-center rounded-xl ${style.chip}`}>
           <Icon className="size-5" />
         </span>
-        <span className="text-sm font-medium text-ink-faint">{t?.count ?? 0} bills</span>
+        <span className="text-sm font-medium text-ink-faint">{t?.count ?? 0} {t?.count === 1 ? "bill" : "bills"}</span>
       </div>
       <p className="mt-3 text-sm font-medium text-ink-soft">{def.name}</p>
       <p className="font-display text-[1.35rem] leading-tight font-semibold text-ink">{t ? main : "…"}</p>

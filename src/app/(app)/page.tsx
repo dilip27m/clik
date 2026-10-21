@@ -23,11 +23,8 @@ function greeting() {
 
 export default function HomePage() {
   const { company, info } = useCompany();
-  // No month chosen: the server picks the month of the latest saved bill.
-  const [picked, setPicked] = useState<{ company: string; month: string } | null>(null);
-  const chosen = picked?.company === company ? picked.month : null;
-  const { data, error } = useCached<HomeResponse>(`/api/home?company=${company}${chosen ? `&month=${chosen}` : ""}`);
-  const month = data?.stats.month ?? chosen ?? new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(""); // "" = all months, like the Bills page
+  const { data, error } = useCached<HomeResponse>(`/api/home?company=${company}${month ? `&month=${month}` : ""}`);
   const isCurrent = month === new Date().toISOString().slice(0, 7);
 
   return (
@@ -54,8 +51,8 @@ export default function HomePage() {
       {error && !data && <Notice tone="error" title="Could not load">{error}</Notice>}
 
       <section>
-        <SectionTitle action={<MonthSelect value={month} allowAll={false} className="h-10 text-sm" onChange={(m) => setPicked({ company, month: m })} />}>
-          {info.short} · {formatMonth(month)}
+        <SectionTitle action={<MonthSelect value={month} className="h-10 text-sm" onChange={setMonth} />}>
+          {info.short} · {month ? formatMonth(month) : "All months"}
           {isCurrent && " so far"}
         </SectionTitle>
         <MonthSummary stats={data?.stats} />
