@@ -12,5 +12,5 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   // Everything except the login page/API and static files.
-  matcher: ["/((?!login|api/login|_next/|favicon|icon-|apple-touch-icon|logo|manifest.json|sw.js).*)"],
+  matcher: ["/((?!login|api/login|_next/|favicon|icon-|apple-touch-icon|logo|manifest.webmanifest|sw.js|offline.html|share-target).*)"],
 };
