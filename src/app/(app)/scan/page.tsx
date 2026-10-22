@@ -55,10 +55,10 @@ export default function ScanPage() {
       );
       break;
     case "checking":
-      body = <ReadingStep label="Checking the photo…" />;
+      body = <ReadingStep />;
       break;
     case "reading":
-      body = <ReadingStep src={state.photo.dataUrl} />;
+      body = <ReadingStep src={state.photo.dataUrl} progress={state.progress} />;
       break;
     case "blurry":
       body = (

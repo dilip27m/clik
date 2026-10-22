@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { Bill, BillData, BillType, BILL_TYPES } from "@/lib/bill-types";
 import type { Credits } from "@/components/CreditsBadge";
-import { api, ApiError } from "./api";
+import { api, apiUpload, ApiError } from "./api";
 import { PreparedPhoto, photoProblem, preparePhoto } from "./image";
 import type { ExtractResponse } from "./types";
 
@@ -11,12 +11,21 @@ export type ScanStep =
   | { step: "pick" }
   | { step: "checking" }
   | { step: "blurry"; photo: PreparedPhoto; reason: string }
-  | { step: "reading"; photo: PreparedPhoto }
+  | { step: "reading"; photo: PreparedPhoto; progress: ReadProgress }
   | { step: "retake"; photo: PreparedPhoto; reason: string; draft?: Draft }
   | { step: "failed"; photo: PreparedPhoto; reason: string; outOfCredits?: boolean; resetsAt?: string }
   | { step: "choose-type"; photo?: PreparedPhoto }
   | { step: "review"; photo?: PreparedPhoto; draft: Draft; existingId?: number | null }
   | { step: "saved"; bill: Bill };
+
+// What the progress bar knows while a bill is being read.
+export interface ReadProgress {
+  sent: number;              // 0 → 1, real upload progress
+  aiStartedAt: number | null; // when the photo finished uploading (performance.now())
+  done: boolean;             // answer arrived
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface Draft {
   type: BillType;
@@ -36,9 +45,20 @@ export function useScanFlow(company: string) {
   const [saveError, setSaveError] = useState<{ message: string; existingId?: number } | null>(null);
 
   const read = useCallback(async (photo: PreparedPhoto) => {
-    setState({ step: "reading", photo });
+    let progress: ReadProgress = { sent: 0, aiStartedAt: null, done: false };
+    const show = (p: Partial<ReadProgress>) => {
+      progress = { ...progress, ...p };
+      setState({ step: "reading", photo, progress });
+    };
+    show({});
     try {
-      const res = await api<ExtractResponse>("/api/extract", { body: { image: photo.base64, mime: "image/jpeg", company } });
+      const res = await apiUpload<ExtractResponse>("/api/extract", { image: photo.base64, mime: "image/jpeg", company }, (sent) => {
+        if (sent >= 1 && progress.aiStartedAt === null) show({ sent: 1, aiStartedAt: performance.now() });
+        else if (sent < 1) show({ sent });
+      });
+      // Let the bar reach 100% for a moment so the finish feels complete.
+      show({ sent: 1, aiStartedAt: progress.aiStartedAt ?? performance.now(), done: true });
+      await sleep(350);
       if (res.credits) setCredits(res.credits);
       if (res.ok) {
         setState({
