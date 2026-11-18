@@ -1,23 +1,20 @@
 "use client";
 
-import { Images, Keyboard } from "lucide-react";
+import { Keyboard } from "lucide-react";
 import { BILL_TYPES, BILL_TYPE_ORDER } from "@/lib/bill-types";
 import { BillTypeChip } from "@/components/bill/billStyle";
 import { CreditsBadge, Credits } from "@/components/CreditsBadge";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ScanActions } from "./ScanActions";
 
 interface Props {
   credits?: Credits;
-  queueLeft: number;
   onCamera: () => void;
   onGallery: () => void;
-  onContinueQueue: () => void;
   onByHand: () => void;
 }
 
-export function PickStep({ credits, queueLeft, onCamera, onGallery, onContinueQueue, onByHand }: Props) {
+export function PickStep({ credits, onCamera, onGallery, onByHand }: Props) {
   const outOfScans = credits?.left === 0;
   return (
     <div className="space-y-6 animate-rise">
@@ -28,17 +25,11 @@ export function PickStep({ credits, queueLeft, onCamera, onGallery, onContinueQu
 
       <CreditsBadge credits={credits} />
 
-      {queueLeft > 0 && (
-        <Button size="lg" variant="secondary" full icon={<Images className="size-5" />} onClick={onContinueQueue}>
-          Continue with the next photo ({queueLeft} waiting)
-        </Button>
-      )}
-
       <div className="space-y-2">
         <ScanActions onCamera={onCamera} onPhotos={onGallery} disabled={outOfScans} />
         <p className="text-sm text-ink-soft">
-          <b className="font-semibold text-ink">Photos</b> lets you pick many bills at once. Each one is read and shown to you for checking, one
-          after another.
+          <b className="font-semibold text-ink">Photos</b> lets you pick many bills at once. They are all read together, then shown in a list for
+          you to check and save.
         </p>
       </div>
 

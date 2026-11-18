@@ -162,13 +162,22 @@ function interpret(parsed: any): ExtractResult {
   return { ok: true, ...extracted };
 }
 
+export interface ExtractOptions {
+  budgetMs?: number;   // whole read
+  perModelMs?: number; // one model
+  rotate?: number;     // start at a later model (background retries try each model in turn)
+}
+
 // One scan = normally one request. Models are tried in order; a model whose
 // free daily quota is used up is skipped until the quota resets.
-export async function extractBill(imageBase64: string, mimeType = "image/jpeg"): Promise<ExtractResult> {
+export async function extractBill(imageBase64: string, mimeType = "image/jpeg", opts: ExtractOptions = {}): Promise<ExtractResult> {
+  const { budgetMs = TOTAL_BUDGET_MS, perModelMs = TIMEOUT_MS, rotate = 0 } = opts;
   const keys = apiKeys();
   if (!keys.length) return { ok: false, reason: "The AI key is not set up on the server." };
 
-  const models = await availableModels();
+  const available = await availableModels();
+  const shift = available.length ? rotate % available.length : 0;
+  const models = [...available.slice(shift), ...available.slice(0, shift)];
   if (!models.length) {
     const credits = await creditsLeft();
     return { ok: false, outOfCredits: true, resetsAt: credits.resetsAt, reason: "Today's free scans are used up." };
@@ -179,13 +188,13 @@ export async function extractBill(imageBase64: string, mimeType = "image/jpeg"):
   attempts: for (const model of models) {
     // A per-minute 429 is per key, so one more key may still work.
     for (const apiKey of keys.sort(() => Math.random() - 0.5).slice(0, 2)) {
-      const left = TOTAL_BUDGET_MS - (Date.now() - started);
+      const left = budgetMs - (Date.now() - started);
       if (left < MIN_ATTEMPT_MS) {
         busy = true;
         break attempts;
       }
       try {
-        const parsed = await callModel(apiKey, model, imageBase64, mimeType, Math.min(TIMEOUT_MS, left));
+        const parsed = await callModel(apiKey, model, imageBase64, mimeType, Math.min(perModelMs, left));
         await recordModelUse(model);
         return interpret(parsed);
       } catch (e) {

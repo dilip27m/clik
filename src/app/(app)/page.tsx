@@ -6,6 +6,7 @@ import { useCompany } from "@/lib/client/company";
 import { setPendingPhotos } from "@/lib/client/pendingPhotos";
 import { useCached } from "@/lib/client/useCached";
 import type { HomeResponse } from "@/lib/client/types";
+import { BatchBanner } from "@/components/batch/BatchBanner";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
 import { CreditsBadge } from "@/components/CreditsBadge";
 import { InstallApp } from "@/components/InstallApp";
@@ -38,6 +39,8 @@ export default function HomePage() {
         <p className="text-ink-soft">{greeting()} 🙏</p>
         <h1 className="font-display text-3xl font-semibold text-ink sm:text-4xl">What bill do you have today?</h1>
       </section>
+
+      {data?.batch && <BatchBanner reading={data.batch.reading} toCheck={data.batch.toCheck} />}
 
       <InstallApp />
 
