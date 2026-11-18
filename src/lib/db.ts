@@ -325,34 +325,5 @@ export async function setModelExhausted(day: string, model: string) {
   );
 }
 
-export interface MonthStats {
-  month: string;
-  byType: Record<BillType, { count: number; qty: number; amount: number; gst: number }>;
-}
-
-// month "" means all months.
-export async function monthStats(company: string, month: string): Promise<MonthStats> {
-  const pool = await db();
-  const all = !/^\d{4}-\d{2}$/.test(month);
-  const { rows } = await pool.query(
-    `SELECT type, count(*)::int AS count, COALESCE(sum(qty), 0) AS qty, COALESCE(sum(amount), 0) AS amount,
-            COALESCE(sum(COALESCE((data->>'cgst')::numeric, 0) + COALESCE((data->>'sgst')::numeric, 0)), 0) AS gst
-     FROM bills
-     WHERE company = $2 AND ($1::date IS NULL OR (bill_date >= $1::date AND bill_date < ($1::date + interval '1 month')))
-     GROUP BY type`,
-    [all ? null : `${month}-01`, company]
-  );
-  const empty = { count: 0, qty: 0, amount: 0, gst: 0 };
-  const byType = {
-    transit_in: { ...empty },
-    apmdc_invoice: { ...empty },
-    form_e: { ...empty },
-    sales_invoice: { ...empty },
-  } as MonthStats["byType"];
-  for (const r of rows) {
-    if (r.type in byType) byType[r.type as BillType] = { count: r.count, qty: r.qty, amount: r.amount, gst: r.gst };
-  }
-  return { month: all ? "" : month, byType };
-}
 
 
