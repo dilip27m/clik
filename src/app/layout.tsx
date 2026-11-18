@@ -26,8 +26,12 @@ export const viewport: Viewport = {
 
 // Registers the service worker (offline page, fast start, "share to Bill Book")
 // and keeps the browser's "install app" offer for the Install button on Home.
+// Only in production builds: in development file names don't change between
+// edits, so a cached copy could show old code.
+const REGISTER_SW = process.env.NODE_ENV === "production";
+
 const PWA_BOOT = `
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+if (${REGISTER_SW} && 'serviceWorker' in navigator) {
   addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 }
 addEventListener('beforeinstallprompt', function (e) {

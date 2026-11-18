@@ -97,7 +97,8 @@ export function useScanFlow(company: string) {
   const addFiles = useCallback(
     (files: File[]) => {
       if (!files.length) return;
-      setQueue(files.slice(1));
+      // New photos go first; photos already waiting stay in line (e.g. after a retake).
+      setQueue((waiting) => [...files.slice(1), ...waiting]);
       start(files[0]);
     },
     [start]
@@ -149,6 +150,11 @@ export function useScanFlow(company: string) {
     enterByHand,
     reset: () => {
       setQueue([]);
+      setSaveError(null);
+      setState({ step: "pick" });
+    },
+    // Back to the start screen but keep the photos that are still waiting.
+    backToPick: () => {
       setSaveError(null);
       setState({ step: "pick" });
     },

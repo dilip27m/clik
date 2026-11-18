@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS bills (
 );
 -- Each bill belongs to one company; bill numbers are unique per company.
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT 'slp';
+-- The second company was first set up as "renuka"; it is Golden Tulip.
+UPDATE bills SET company = 'tulip' WHERE company = 'renuka';
 ALTER TABLE bills DROP CONSTRAINT IF EXISTS bills_type_doc_no_key;
 CREATE UNIQUE INDEX IF NOT EXISTS bills_company_type_doc ON bills (company, type, doc_no);
 CREATE INDEX IF NOT EXISTS bills_type_date ON bills (type, bill_date DESC);
@@ -101,7 +103,7 @@ CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 // Bump when SCHEMA changes. A cold server then needs one quick query to see
 // the database is ready, instead of re-running every CREATE/ALTER.
-const SCHEMA_VERSION = "4";
+const SCHEMA_VERSION = "5";
 
 async function ensureSchema(pool: Pool) {
   try {
@@ -323,68 +325,5 @@ export async function setModelExhausted(day: string, model: string) {
   );
 }
 
-export interface MonthStats {
-  month: string;
-  byType: Record<BillType, { count: number; qty: number; amount: number; gst: number }>;
-}
 
-// month "" means all months.
-export async function monthStats(company: string, month: string): Promise<MonthStats> {
-  const pool = await db();
-  const all = !/^\d{4}-\d{2}$/.test(month);
-  const { rows } = await pool.query(
-    `SELECT type, count(*)::int AS count, COALESCE(sum(qty), 0) AS qty, COALESCE(sum(amount), 0) AS amount,
-            COALESCE(sum(COALESCE((data->>'cgst')::numeric, 0) + COALESCE((data->>'sgst')::numeric, 0)), 0) AS gst
-     FROM bills
-     WHERE company = $2 AND ($1::date IS NULL OR (bill_date >= $1::date AND bill_date < ($1::date + interval '1 month')))
-     GROUP BY type`,
-    [all ? null : `${month}-01`, company]
-  );
-  const empty = { count: 0, qty: 0, amount: 0, gst: 0 };
-  const byType = {
-    transit_in: { ...empty },
-    apmdc_invoice: { ...empty },
-    form_e: { ...empty },
-    sales_invoice: { ...empty },
-  } as MonthStats["byType"];
-  for (const r of rows) {
-    if (r.type in byType) byType[r.type as BillType] = { count: r.count, qty: r.qty, amount: r.amount, gst: r.gst };
-  }
-  return { month: all ? "" : month, byType };
-}
 
-// Every APMDC bill should have a Transit Form for the same truck, day and quantity.
-// Returns the bills on either side that have no partner.
-export async function unmatchedPurchases(company: string): Promise<Bill[]> {
-  const pool = await db();
-  const { rows } = await pool.query(
-    `${SELECT}
-     WHERE b.company = $1 AND b.type IN ('apmdc_invoice', 'transit_in')
-       AND b.bill_date >= now() - interval '60 days'
-       AND NOT EXISTS (
-         SELECT 1 FROM bills o
-         WHERE o.company = b.company AND o.type = CASE b.type WHEN 'apmdc_invoice' THEN 'transit_in' ELSE 'apmdc_invoice' END
-           AND o.vehicle_no = b.vehicle_no AND o.vehicle_no <> ''
-           AND o.qty = b.qty
-           AND abs(o.bill_date - b.bill_date) <= 1)
-       AND b.created_at < now() - interval '2 days'
-     ORDER BY b.bill_date DESC LIMIT 20`,
-    [company]
-  );
-  return rows.map(toBill);
-}
-
-// The partner bill(s) for a purchase bill: same truck, same quantity, within a day.
-export async function matchingBills(bill: Bill): Promise<Bill[]> {
-  if (bill.type !== "apmdc_invoice" && bill.type !== "transit_in") return [];
-  if (!bill.vehicleNo || bill.qty === null || !bill.date) return [];
-  const pool = await db();
-  const other = bill.type === "apmdc_invoice" ? "transit_in" : "apmdc_invoice";
-  const { rows } = await pool.query(
-    `${SELECT}
-     WHERE b.company = $5 AND b.type = $1 AND b.vehicle_no = $2 AND b.qty = $3 AND abs(b.bill_date - $4::date) <= 1
-     ORDER BY b.bill_date LIMIT 5`,
-    [other, bill.vehicleNo, bill.qty, bill.date, bill.company]
-  );
-  return rows.map(toBill);
-}

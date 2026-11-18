@@ -5,7 +5,7 @@ import { companyFromName } from "./companies";
 import { availableModels, creditsLeft, markModelExhausted, recordModelUse } from "./quota";
 
 const PROMPT = `You read photos of business bills for two barytes companies in Andhra Pradesh:
-"Sri Lalithha Pulverisers" and "Renuka Minerals". Either company can be "our side" of a bill.
+"Sri Lalithha Pulverisers" and "Golden Tulip". Either company can be "our side" of a bill.
 The photo is one of exactly 4 bill types. First decide which, then read its fields exactly as printed.
 
 TYPE "transit_in" — Government of AP "TRANSIT FORM (Duplicate)", OMMS 2.0, beige security paper.
@@ -37,7 +37,7 @@ TYPE "form_e" — Government of AP "FORM E", "TRANSIT PASS (Original)", blue-bor
   qty: number from "Dispatched Quantity" (e.g. "37.5 PRODUCTION QUANTITY (MT)" → 37.5).
   saleValue: "Sale Value".
 
-TYPE "sales_invoice" — "Tax Invoice" whose seller heading is our company (e.g. "SRI LALITHHA PULVERISERS" or "RENUKA MINERALS").
+TYPE "sales_invoice" — "Tax Invoice" whose seller heading is our company (e.g. "SRI LALITHHA PULVERISERS" or "GOLDEN TULIP").
   invoiceNo: "Invoice No." (e.g. "2026-27/28").
   date: "Date" under Invoice Details.
   billTo: the company name on the first line under "Bill To".
@@ -79,7 +79,11 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-const TIMEOUT_MS = 30000;
+// One model gets at most 25 s; the whole read at most 50 s, so a slow Google
+// answers "busy, try again" quickly instead of keeping the user waiting.
+const TIMEOUT_MS = 25000;
+const TOTAL_BUDGET_MS = 50000;
+const MIN_ATTEMPT_MS = 8000; // not worth starting a model with less time than this
 
 const KEY_FORMATS: Partial<Record<BillType, RegExp>> = {
   transit_in: /^DD\d{7}$/,
@@ -111,7 +115,7 @@ function apiKeys(): string[] {
   return Array.from(new Set(raw.split(",").map((k) => k.trim()).filter(Boolean)));
 }
 
-async function callModel(apiKey: string, model: string, imageBase64: string, mimeType: string) {
+async function callModel(apiKey: string, model: string, imageBase64: string, mimeType: string, timeoutMs: number) {
   const ai = new GoogleGenAI({ apiKey });
   const res = await ai.models.generateContent({
     model,
@@ -121,7 +125,7 @@ async function callModel(apiKey: string, model: string, imageBase64: string, mim
       responseJsonSchema: SCHEMA,
       temperature: 0,
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      abortSignal: AbortSignal.timeout(TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutMs),
     },
   });
   return JSON.parse(res.text || "{}");
@@ -171,11 +175,17 @@ export async function extractBill(imageBase64: string, mimeType = "image/jpeg"):
   }
 
   let busy = false;
-  for (const model of models) {
+  const started = Date.now();
+  attempts: for (const model of models) {
     // A per-minute 429 is per key, so one more key may still work.
     for (const apiKey of keys.sort(() => Math.random() - 0.5).slice(0, 2)) {
+      const left = TOTAL_BUDGET_MS - (Date.now() - started);
+      if (left < MIN_ATTEMPT_MS) {
+        busy = true;
+        break attempts;
+      }
       try {
-        const parsed = await callModel(apiKey, model, imageBase64, mimeType);
+        const parsed = await callModel(apiKey, model, imageBase64, mimeType, Math.min(TIMEOUT_MS, left));
         await recordModelUse(model);
         return interpret(parsed);
       } catch (e) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { cleanBillData } from "@/lib/bill-types";
 import { isCompanyId } from "@/lib/companies";
-import { DuplicateBillError, deleteBill, getBill, matchingBills, updateBill } from "@/lib/db";
+import { DuplicateBillError, deleteBill, getBill, updateBill } from "@/lib/db";
 import { sheetsConfigured, syncBill, syncDelete } from "@/lib/sheets";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -9,7 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const bill = await getBill(Number((await ctx.params).id));
   if (!bill) return NextResponse.json({ error: "Bill not found" }, { status: 404 });
-  return NextResponse.json({ bill, matches: await matchingBills(bill), sheetsConfigured: sheetsConfigured(bill.company) });
+  return NextResponse.json({ bill, sheetsConfigured: sheetsConfigured(bill.company) });
 }
 
 export async function PATCH(req: NextRequest, ctx: Ctx) {

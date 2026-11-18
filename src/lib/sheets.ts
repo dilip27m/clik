@@ -1,20 +1,22 @@
 import "server-only";
 import { BILL_TYPES, Bill } from "./bill-types";
-import { COMPANIES, DEFAULT_COMPANY } from "./companies";
+import { COMPANIES, DEFAULT_COMPANY, getCompany } from "./companies";
 import { getBill, getPhoto, markSyncFailed, markSynced, unsyncedBillIds } from "./db";
 
 // Each company has its own Google Sheet (and its own Apps Script web app):
-//   GOOGLE_SHEETS_WEBHOOK_URL_SLP, GOOGLE_SHEETS_WEBHOOK_URL_RENUKA, …
+//   GOOGLE_SHEETS_WEBHOOK_URL_SLP, GOOGLE_SHEETS_WEBHOOK_URL_TULIP, …
 // The first company may also use the plain GOOGLE_SHEETS_WEBHOOK_URL.
 function companyEnv(prefix: string, company: string): string {
-  const own = process.env[`${prefix}_${company.toUpperCase()}`];
-  const fallback = company === DEFAULT_COMPANY ? process.env[prefix] : "";
-  return (own || fallback || "").trim();
+  for (const suffix of getCompany(company).envSuffixes) {
+    const value = process.env[`${prefix}_${suffix}`]?.trim();
+    if (value) return value;
+  }
+  return company === DEFAULT_COMPANY ? (process.env[prefix] || "").trim() : "";
 }
 
 const webhookUrl = (company: string) => companyEnv("GOOGLE_SHEETS_WEBHOOK_URL", company);
 
-// Link to open the company's sheet: GOOGLE_SHEET_URL_SLP, GOOGLE_SHEET_URL_RENUKA, …
+// Link to open the company's sheet: GOOGLE_SHEET_URL_SLP, GOOGLE_SHEET_URL_TULIP, …
 export const sheetLink = (company: string) =>
   companyEnv("GOOGLE_SHEET_URL", company) ||
   (company === DEFAULT_COMPANY ? process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL || null : null);

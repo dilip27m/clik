@@ -2,9 +2,7 @@ import type { Bill, BillType, Check, BillData } from "@/lib/bill-types";
 import type { Credits } from "@/components/CreditsBadge";
 
 export interface HomeResponse {
-  stats: { month: string; byType: Record<BillType, { count: number; qty: number; amount: number; gst: number }> };
   recent: Bill[];
-  unmatched: Bill[];
   credits: Credits;
   sheetUrl: string | null;
   sheetsConfigured: boolean;

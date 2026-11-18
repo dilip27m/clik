@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { MetaResponse } from "@/lib/client/types";
+import { takePendingPhotos } from "@/lib/client/pendingPhotos";
 import { takeSharedPhotos } from "@/lib/client/sharedPhotos";
 import { useCompany } from "@/lib/client/company";
 import { useCached } from "@/lib/client/useCached";
@@ -28,6 +29,12 @@ export default function ScanPage() {
     if (meta.data?.credits) setCredits((c) => c ?? meta.data!.credits);
   }, [meta.data, setCredits]);
 
+  // Photos picked with the Photos button on Home: start reading them right away.
+  useEffect(() => {
+    const files = takePendingPhotos();
+    if (files.length) addFiles(files);
+  }, [addFiles]);
+
   // Opened by "Share → Bill Book" from WhatsApp or Gallery: read the shared photo right away.
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has("shared")) return;
@@ -37,10 +44,12 @@ export default function ScanPage() {
     });
   }, [addFiles]);
 
+  // Retake keeps any other photos that are still waiting.
   const retake = () => {
-    flow.reset();
+    flow.backToPick();
     openCamera();
   };
+  const skip = flow.queueLeft > 0 ? flow.next : undefined;
 
   let body: React.ReactNode;
   switch (state.step) {
@@ -48,8 +57,10 @@ export default function ScanPage() {
       body = (
         <PickStep
           credits={flow.credits}
+          queueLeft={flow.queueLeft}
           onCamera={openCamera}
           onGallery={openGallery}
+          onContinueQueue={flow.next}
           onByHand={() => flow.setState({ step: "choose-type" })}
         />
       );
@@ -69,6 +80,8 @@ export default function ScanPage() {
           onRetake={retake}
           onContinue={() => flow.read(state.photo)}
           continueLabel="The photo is fine — read it anyway"
+          queueLeft={flow.queueLeft}
+          onSkip={skip}
         />
       );
       break;
@@ -81,6 +94,8 @@ export default function ScanPage() {
           onRetake={retake}
           onContinue={state.draft ? () => flow.setState({ step: "review", photo: state.photo, draft: state.draft! }) : undefined}
           continueLabel="Use this photo and check every field"
+          queueLeft={flow.queueLeft}
+          onSkip={skip}
         />
       );
       break;
@@ -94,6 +109,8 @@ export default function ScanPage() {
           retakeLabel={state.outOfCredits ? "Take a new photo later" : "Try again"}
           onRetake={state.outOfCredits ? flow.reset : () => flow.read(state.photo)}
           onByHand={() => flow.setState({ step: "choose-type", photo: state.photo })}
+          queueLeft={flow.queueLeft}
+          onSkip={skip}
         />
       );
       break;
@@ -123,7 +140,7 @@ export default function ScanPage() {
           onSave={(type, data, billCompany) => flow.save(type, data, billCompany, state.photo)}
           onChangeType={(type) => flow.setState({ ...state, draft: { ...state.draft, type, unsure: [] } })}
           activeCompany={company}
-          onCancel={flow.reset}
+          onCancel={skip ?? flow.reset}
         />
       );
       break;

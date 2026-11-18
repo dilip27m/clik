@@ -98,7 +98,7 @@ export function ReviewStep({ photo, draft, existingId, saving, saveError, queueL
             onSubmit={(data) => onSave(draft.type, data, company)}
             footer={
               <Button type="button" variant="ghost" full onClick={onCancel}>
-                Cancel
+                {queueLeft > 0 ? "Skip this bill" : "Cancel"}
               </Button>
             }
           />
