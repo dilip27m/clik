@@ -16,6 +16,10 @@ async function hmac(text: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" })[c]!);
 }
 
+// Lets the background bill reader call itself (no login cookie on the server).
+export const WORKER_HEADER = "x-worker-key";
+export const workerKey = () => hmac("background-bill-reader");
+
 export async function createSessionToken(): Promise<string> {
   const expires = Date.now() + SESSION_DAYS * 86400000;
   return `${expires}.${await hmac(String(expires))}`;

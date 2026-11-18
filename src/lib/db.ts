@@ -99,11 +99,31 @@ CREATE INDEX IF NOT EXISTS bills_company_created ON bills (company, created_at D
 CREATE INDEX IF NOT EXISTS bills_company_vehicle ON bills (company, type, vehicle_no);
 
 CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- Photos waiting to be read, or read and waiting for the person to confirm.
+-- Kept on the server so a batch survives closing the app or a locked phone.
+CREATE TABLE IF NOT EXISTS scan_jobs (
+  id          BIGSERIAL PRIMARY KEY,
+  company     TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'queued',  -- queued | reading | ready | check | failed
+  mime        TEXT NOT NULL,
+  photo       BYTEA NOT NULL,
+  attempts    INT NOT NULL DEFAULT 0,
+  not_before  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  result      JSONB,
+  error       TEXT,
+  existing_id BIGINT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at  TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS scan_jobs_status ON scan_jobs (status, not_before);
+CREATE INDEX IF NOT EXISTS scan_jobs_company ON scan_jobs (company, id);
 `;
 
 // Bump when SCHEMA changes. A cold server then needs one quick query to see
 // the database is ready, instead of re-running every CREATE/ALTER.
-const SCHEMA_VERSION = "5";
+const SCHEMA_VERSION = "6";
 
 async function ensureSchema(pool: Pool) {
   try {
@@ -119,7 +139,7 @@ async function ensureSchema(pool: Pool) {
   );
 }
 
-async function db(): Promise<Pool> {
+export async function db(): Promise<Pool> {
   const pool = getPool();
   if (!globalForDb.ready) {
     globalForDb.ready = ensureSchema(pool);

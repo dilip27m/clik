@@ -4,6 +4,7 @@ import type { Credits } from "@/components/CreditsBadge";
 export interface HomeResponse {
   recent: Bill[];
   credits: Credits;
+  batch: { reading: number; toCheck: number };
   sheetUrl: string | null;
   sheetsConfigured: boolean;
 }
