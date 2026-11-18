@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, CloudUpload, ExternalLink, Link2, Pencil, Trash, TriangleAlert } from "lucide-react";
-import { BILL_TYPES, Bill, BillData, formatDate, formatQty } from "@/lib/bill-types";
+import { ArrowLeft, CloudUpload, ExternalLink, Pencil, Trash } from "lucide-react";
+import { BILL_TYPES, Bill, BillData, formatDate } from "@/lib/bill-types";
 import { api } from "@/lib/client/api";
 import { useCached } from "@/lib/client/useCached";
 import { BillDetails } from "@/components/bill/BillDetails";
@@ -21,7 +21,7 @@ import { Spinner } from "@/components/ui/Spinner";
 export default function BillPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { data, error, reload } = useCached<{ bill: Bill; matches: Bill[]; sheetsConfigured: boolean }>(`/api/bills/${id}`);
+  const { data, error, reload } = useCached<{ bill: Bill; sheetsConfigured: boolean }>(`/api/bills/${id}`);
   const [editing, setEditing] = useState(false);
   const [editCompany, setEditCompany] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,9 +37,8 @@ export default function BillPage() {
     );
   }
 
-  const { bill, matches } = data;
+  const { bill } = data;
   const def = BILL_TYPES[bill.type];
-  const isPurchase = bill.type === "apmdc_invoice" || bill.type === "transit_in";
 
   async function saveEdit(values: BillData) {
     setBusy(true);
@@ -118,7 +117,6 @@ export default function BillPage() {
               <Card className="overflow-hidden">
                 <BillDetails bill={bill} />
               </Card>
-              {isPurchase && <MatchCard bill={bill} matches={matches} />}
               <div className="grid grid-cols-2 gap-3">
                 <Button size="lg" variant="secondary" icon={<Pencil className="size-5" />} onClick={() => setEditing(true)}>
                   Edit
@@ -159,39 +157,3 @@ function SyncStatus({ bill, connected }: { bill: Bill; connected: boolean }) {
   );
 }
 
-// APMDC bill ↔ Transit Form for the same truck, quantity and day.
-function MatchCard({ bill, matches }: { bill: Bill; matches: Bill[] }) {
-  const other = bill.type === "apmdc_invoice" ? "Transit Form" : "APMDC Bill";
-  if (matches.length === 0) {
-    return (
-      <Notice tone="warn" title={`No matching ${other} yet`}>
-        Looking for {bill.vehicleNo || "the same truck"}, {formatQty(bill.qty)} on {formatDate(bill.date)}. If it is saved with a different
-        vehicle number, check both bills.
-      </Notice>
-    );
-  }
-  return (
-    <Card className="p-4">
-      <p className="mb-2 flex items-center gap-2 font-semibold text-leaf">
-        <Link2 className="size-5" /> Matching {other}
-        {matches.length > 1 && (
-          <span className="ml-1 inline-flex items-center gap-1 text-sm font-medium text-gold">
-            <TriangleAlert className="size-4" /> {matches.length} possible
-          </span>
-        )}
-      </p>
-      <ul className="space-y-1">
-        {matches.map((m) => (
-          <li key={m.id}>
-            <Link href={`/bills/${m.id}`} className="font-medium text-clay underline-offset-4 hover:underline">
-              {m.docNo}
-            </Link>{" "}
-            <span className="text-sm text-ink-soft">
-              · {formatDate(m.date)} · {formatQty(m.qty)}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}

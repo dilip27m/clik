@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ChevronRight, ScanLine, TriangleAlert } from "lucide-react";
-import { formatDate, formatMonth, formatQty } from "@/lib/bill-types";
+import { formatMonth } from "@/lib/bill-types";
 import { useCompany } from "@/lib/client/company";
+import { setPendingPhotos } from "@/lib/client/pendingPhotos";
 import { useCached } from "@/lib/client/useCached";
 import type { HomeResponse } from "@/lib/client/types";
 import { BillCard, BillListSkeleton } from "@/components/bill/BillCard";
-import { BillTypeChip } from "@/components/bill/billStyle";
 import { CreditsBadge } from "@/components/CreditsBadge";
 import { InstallApp } from "@/components/InstallApp";
 import { MonthSelect } from "@/components/bills/MonthSelect";
 import { MonthSummary } from "@/components/home/MonthSummary";
-import { ButtonLink } from "@/components/ui/Button";
+import { ScanActions } from "@/components/scan/ScanActions";
+import { usePhotoInputs } from "@/components/scan/usePhotoInputs";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { Notice } from "@/components/ui/Notice";
 
@@ -28,8 +29,17 @@ export default function HomePage() {
   const { data, error } = useCached<HomeResponse>(`/api/home?company=${company}${month ? `&month=${month}` : ""}`);
   const isCurrent = month === new Date().toISOString().slice(0, 7);
 
+  // Scan / Photos open the camera or gallery right here, then the Scan page reads them.
+  const router = useRouter();
+  const { inputs, openCamera, openGallery } = usePhotoInputs((files) => {
+    if (!files.length) return;
+    setPendingPhotos(files);
+    router.push("/scan");
+  });
+
   return (
     <div className="space-y-8">
+      {inputs}
       <section className="animate-rise">
         <p className="text-ink-soft">{greeting()} 🙏</p>
         <h1 className="font-display text-3xl font-semibold text-ink sm:text-4xl">What bill do you have today?</h1>
@@ -40,11 +50,12 @@ export default function HomePage() {
       <Card className="overflow-hidden">
         <div className="bg-[radial-gradient(120%_120%_at_100%_0%,#f6e3d6_0%,transparent_60%)] p-5 sm:p-6">
           <p className="mb-4 max-w-md text-ink-soft">
-            Take a photo of any of the 4 bills. The app reads it, you check it, and it goes into the Google Sheet.
+            Take a photo of a bill, or pick several from <b className="font-semibold text-ink">Photos</b>. The app reads each one, you check
+            it, and it goes into the Google Sheet.
           </p>
-          <ButtonLink href="/scan" size="xl" full icon={<ScanLine className="size-7" />} className="sm:w-auto">
-            Scan a Bill
-          </ButtonLink>
+          <div className="max-w-md">
+            <ScanActions onCamera={openCamera} onPhotos={openGallery} disabled={data?.credits.left === 0} />
+          </div>
           <div className="mt-4">
             <CreditsBadge credits={data?.credits} compact />
           </div>
@@ -61,29 +72,6 @@ export default function HomePage() {
         <MonthSummary stats={data?.stats} />
       </section>
 
-      {data && data.unmatched.length > 0 && (
-        <section>
-          <SectionTitle>Needs a look</SectionTitle>
-          <Card className="divide-y divide-line">
-            {data.unmatched.slice(0, 5).map((b) => (
-              <Link key={b.id} href={`/bills/${b.id}`} className="flex items-center gap-3 p-4 hover:bg-cream/60">
-                <TriangleAlert className="size-5 shrink-0 text-gold" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-ink">
-                    {b.docNo} <span className="font-normal text-ink-soft">· {formatDate(b.date)}</span>
-                  </p>
-                  <p className="text-sm text-ink-soft">
-                    {b.type === "apmdc_invoice" ? "No matching Transit Form" : "No matching APMDC bill"} for {b.vehicleNo || "this truck"} ·{" "}
-                    {formatQty(b.qty)}
-                  </p>
-                </div>
-                <BillTypeChip type={b.type} size="sm" />
-                <ChevronRight className="size-5 text-ink-faint" />
-              </Link>
-            ))}
-          </Card>
-        </section>
-      )}
 
       <section>
         <SectionTitle

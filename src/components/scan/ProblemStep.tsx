@@ -14,10 +14,24 @@ interface Props {
   onContinue?: () => void;   // use this photo anyway
   continueLabel?: string;
   onByHand?: () => void;
+  queueLeft?: number;
+  onSkip?: () => void;        // move on to the next waiting photo
 }
 
 // Shown when the photo is blurry, cut off, or the reader is busy/out of scans.
-export function ProblemStep({ src, title, reason, resetsAt, onRetake, retakeLabel = "Retake Photo", onContinue, continueLabel, onByHand }: Props) {
+export function ProblemStep({
+  src,
+  title,
+  reason,
+  resetsAt,
+  onRetake,
+  retakeLabel = "Retake Photo",
+  onContinue,
+  continueLabel,
+  onByHand,
+  queueLeft = 0,
+  onSkip,
+}: Props) {
   return (
     <div className="mx-auto max-w-md space-y-5 animate-rise">
       <div className="overflow-hidden rounded-2xl border-2 border-gold/60 bg-[#efe6d8]">
@@ -40,6 +54,11 @@ export function ProblemStep({ src, title, reason, resetsAt, onRetake, retakeLabe
         {onContinue && (
           <Button size="lg" variant="secondary" full onClick={onContinue}>
             {continueLabel}
+          </Button>
+        )}
+        {onSkip && queueLeft > 0 && (
+          <Button size="lg" variant="secondary" full onClick={onSkip}>
+            Skip — next photo ({queueLeft} left)
           </Button>
         )}
         {onByHand && (

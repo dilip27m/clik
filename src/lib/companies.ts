@@ -7,11 +7,15 @@ export interface Company {
   short: string;
   // How the company's name appears on bills (consignee, receiver, seller…).
   match: RegExp;
+  // Suffixes for its settings, e.g. GOOGLE_SHEETS_WEBHOOK_URL_TULIP. Later
+  // entries are older names that still work.
+  envSuffixes: string[];
 }
 
 export const COMPANIES: Company[] = [
-  { id: "slp", name: "Sri Lalithha Pulverisers", short: "Sri Lalithha", match: /lalit/i },
-  { id: "renuka", name: "Renuka Minerals", short: "Renuka", match: /renuka/i },
+  { id: "slp", name: "Sri Lalithha Pulverisers", short: "Sri Lalithha", match: /lalit/i, envSuffixes: ["SLP"] },
+  // Was set up as "Renuka" at first; RENUKA settings names still work.
+  { id: "tulip", name: "Golden Tulip", short: "Golden Tulip", match: /golden\s*tulip/i, envSuffixes: ["TULIP", "RENUKA"] },
 ];
 
 export const DEFAULT_COMPANY = COMPANIES[0].id;
